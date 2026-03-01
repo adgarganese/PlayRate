@@ -8,11 +8,11 @@
     },
     "preview": {
       "distribution": "internal",
-      "ios": { "simulator": false },
+      "ios": { "simulator": false, "image": "latest" },
       "env": { "EXPO_CACHE_DIR": "/tmp/expo-cache" }
     },
     "production": {
-      "ios": { "simulator": false },
+      "ios": { "simulator": false, "image": "latest" },
       "env": { "EXPO_CACHE_DIR": "/tmp/expo-cache" }
     }
   },
