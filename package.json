@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "eas-build-pre-install": "node scripts/eas-ensure-expo-cache.js",
     "start": "npx expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "npx expo start --android",
