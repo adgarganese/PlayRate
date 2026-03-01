@@ -1,0 +1,91 @@
+{
+  "expo": {
+    "name": "PlayRate",
+    "slug": "playrate",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "playrate",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.playrate.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow PlayRate to use your camera to film or photograph highlights.",
+        "NSLocationWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
+        "NSPhotoLibraryUsageDescription": "Allow PlayRate to access your photos to choose a profile picture or share highlights."
+      }
+    },
+    "android": {
+      "package": "com.playrate.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0000FF",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "config": {
+        "googleMaps": {
+          "apiKey": "${EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}"
+        }
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow PlayRate to use your location to find courts near you."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#EEF1F5",
+          "dark": {
+            "backgroundColor": "#0B0F1A"
+          }
+        }
+      ],
+      "expo-localization",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "your-sentry-org",
+          "project": "your-sentry-project"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "supabaseUrl": "https://nhqhkwvmludnsblimjeu.supabase.co",
+      "supabaseAnonKey": "sb_publishable_QPSR2PT0BZAvw8azqWqEdw_rYL05CpQ",
+      "googlePlacesApiKey": "${EXPO_PUBLIC_GOOGLE_PLACES_API_KEY}",
+      "posthogApiKey": "phc_SNw6eoNm6a7updgvp4m6ijU4KpGdMXiBq2fYiX691Z",
+      "posthogHost": "https://us.i.posthog.com",
+      "router": {},
+      "eas": {
+        "projectId": "ce8747bd-f927-488b-b71b-9db2f74f1508"
+      }
+    }
+  }
+}
