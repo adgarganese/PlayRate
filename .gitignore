@@ -39,6 +39,5 @@ yarn-error.*
 
 app-example
 
-# generated native folders
-/ios
+# generated native folders (ios committed so EAS skips prebuild; android still generated on EAS)
 /android
