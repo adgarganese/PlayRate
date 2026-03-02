@@ -28,6 +28,20 @@ try {
   console.warn('[eas-ensure-expo-cache] remove ios/.xcode.env.local failed:', e.message);
 }
 
+// Force LF line endings in .xcode.env (CRLF causes "unexpected end of file" when expo-configure-project.sh sources it)
+const xcodeEnv = path.join(cwd, 'ios', '.xcode.env');
+try {
+  if (fs.existsSync(xcodeEnv)) {
+    let content = fs.readFileSync(xcodeEnv, 'utf8');
+    if (content.includes('\r')) {
+      content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      fs.writeFileSync(xcodeEnv, content);
+    }
+  }
+} catch (e) {
+  console.warn('[eas-ensure-expo-cache] normalize .xcode.env LF failed:', e.message);
+}
+
 // On EAS, make ios/ writable so CocoaPods can create Pods/ and codegen can create build/
 if (isEAS && fs.existsSync(path.join(cwd, 'ios'))) {
   try {
