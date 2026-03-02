@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * EAS Build: ensure .expo/web exists; remove ios/.xcode.env.local if present so the
- * Xcode phase only uses .xcode.env (which has NODE_BINARY for EAS) and doesn't hit
- * "Permission denied" when sourcing .xcode.env.local.
+ * EAS Build: ensure .expo/web exists; remove ios/.xcode.env.local if present;
+ * make ios/ writable so CocoaPods and codegen can create Pods/ and build/.
  * Run by eas-build-pre-install in package.json.
  */
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const cwd = process.cwd();
+const isEAS = cwd.includes('expo/workingdir') || process.env.EAS_BUILD === '1';
 
 const dir = path.join(cwd, '.expo', 'web');
 try {
@@ -27,11 +28,11 @@ try {
   console.warn('[eas-ensure-expo-cache] remove ios/.xcode.env.local failed:', e.message);
 }
 
-// React Native autolinking writes to ios/build/generated/autolinking/autolinking.json during pod install.
-// Create the dir so Ruby's FileUtils.mkdir_p doesn't hit EACCES on EAS.
-const autolinkingDir = path.join(cwd, 'ios', 'build', 'generated', 'autolinking');
-try {
-  fs.mkdirSync(autolinkingDir, { recursive: true });
-} catch (e) {
-  console.warn('[eas-ensure-expo-cache] mkdir ios/build/generated/autolinking failed:', e.message);
+// On EAS, make ios/ writable so CocoaPods can create Pods/ and codegen can create build/
+if (isEAS && fs.existsSync(path.join(cwd, 'ios'))) {
+  try {
+    execSync('chmod -R u+w ios', { cwd, stdio: 'inherit' });
+  } catch (e) {
+    console.warn('[eas-ensure-expo-cache] chmod -R u+w ios failed:', e.message);
+  }
 }
