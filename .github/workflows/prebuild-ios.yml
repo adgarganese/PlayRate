@@ -19,6 +19,7 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           ref: ${{ github.ref }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -45,11 +46,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin "$BRANCH"
+          git reset --soft origin/"$BRANCH"
           git add ios
           if git diff --staged --quiet; then
             echo "No changes to ios/"
             exit 0
           fi
           git commit -m "chore: add ios from prebuild [skip ci]"
-          git pull --rebase origin "$BRANCH"
           git push origin HEAD:"$BRANCH"
