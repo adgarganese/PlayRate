@@ -1,0 +1,2 @@
+# Ensure shell scripts used by Xcode on EAS have LF line endings (CRLF causes "unexpected end of file")
+ios/.xcode.env text eol=lf
