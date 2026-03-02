@@ -1,0 +1,16 @@
+diff --git a/node_modules/expo-modules-autolinking/scripts/ios/xcode_env_generator.rb b/node_modules/expo-modules-autolinking/scripts/ios/xcode_env_generator.rb
+index fd3292e..ec0493b 100644
+--- a/node_modules/expo-modules-autolinking/scripts/ios/xcode_env_generator.rb
++++ b/node_modules/expo-modules-autolinking/scripts/ios/xcode_env_generator.rb
+@@ -30,6 +30,11 @@ end
+ 
+ def maybe_generate_xcode_env_file!()
+   project_directory = Pod::Config.instance.project_root
++  # Skip creating .xcode.env.local on EAS Build (working dir is read-only for this path)
++  if project_directory.to_s.include?('/Users/expo/workingdir')
++    Pod::UI.info "Skipping .xcode.env.local generation on EAS Build; using .xcode.env for NODE_BINARY"
++    return
++  end
+   xcode_env_file = File.join(project_directory, '.xcode.env.local')
+   if File.exist?(xcode_env_file)
+     return
