@@ -39,11 +39,14 @@ jobs:
       - name: Generate iOS project
         run: npx expo prebuild --platform ios --clean --no-install
 
+      - name: List ios folder (verify it exists)
+        run: ls -la ios
+
       - name: Upload ios folder (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: ios-prebuilt
-          path: ios
+          path: ${{ github.workspace }}/ios
 
       - name: Commit and push ios folder
         env:
@@ -68,3 +71,8 @@ jobs:
           done
           echo "Push failed after 3 attempts"
           exit 1
+
+      - name: Where to find artifacts (if push failed)
+        if: failure()
+        run: |
+          echo "::notice:: If 'Generate iOS project' and 'Upload ios folder' succeeded, download the artifact from the **run** page (not inside the job). Open this workflow run, scroll to the bottom — see 'Artifacts' and download 'ios-prebuilt'."
