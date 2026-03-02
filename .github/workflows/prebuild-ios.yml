@@ -1,6 +1,8 @@
 # Generate the iOS native project on a macOS runner so EAS can skip prebuild
 # (avoids EACCES .expo/web on EAS and lets you build from Windows without a Mac).
 # Run once manually from GitHub Actions, then push. After that, EAS builds will use the committed ios/.
+#
+# If "Commit and push" fails: add a Personal Access Token (repo scope) as repo secret "GH_PAT".
 name: Prebuild iOS
 
 on:
@@ -15,7 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -39,4 +42,4 @@ jobs:
             exit 0
           fi
           git commit -m "chore: add ios from prebuild [skip ci]"
-          git push
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
