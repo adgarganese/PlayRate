@@ -29,17 +29,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Show versions
+        run: |
+          node -v
+          npm -v
+          npx expo --version
+
       - name: Generate iOS project
-        run: npx expo prebuild --platform ios --clean
+        run: npx expo prebuild --platform ios --clean --no-install
 
       - name: Commit and push ios folder
+        env:
+          BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
           git add ios
           if git diff --staged --quiet; then
             echo "No changes to ios/"
             exit 0
           fi
           git commit -m "chore: add ios from prebuild [skip ci]"
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
+          git pull --rebase origin "$BRANCH"
+          git push origin HEAD:"$BRANCH"
