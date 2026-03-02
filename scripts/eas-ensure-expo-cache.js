@@ -27,3 +27,12 @@ try {
 } catch (e) {
   console.warn('[eas-ensure-expo-cache] write ios/.xcode.env.local failed:', e.message);
 }
+
+// React Native autolinking writes to ios/build/generated/autolinking/autolinking.json during pod install.
+// Create the dir so Ruby's FileUtils.mkdir_p doesn't hit EACCES on EAS.
+const autolinkingDir = path.join(cwd, 'ios', 'build', 'generated', 'autolinking');
+try {
+  fs.mkdirSync(autolinkingDir, { recursive: true });
+} catch (e) {
+  console.warn('[eas-ensure-expo-cache] mkdir ios/build/generated/autolinking failed:', e.message);
+}
