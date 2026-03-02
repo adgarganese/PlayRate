@@ -39,18 +39,32 @@ jobs:
       - name: Generate iOS project
         run: npx expo prebuild --platform ios --clean --no-install
 
+      - name: Upload ios folder (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-prebuilt
+          path: ios
+
       - name: Commit and push ios folder
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin "$BRANCH"
-          git reset --soft origin/"$BRANCH"
           git add ios
           if git diff --staged --quiet; then
             echo "No changes to ios/"
             exit 0
           fi
           git commit -m "chore: add ios from prebuild [skip ci]"
-          git push origin HEAD:"$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git rebase "origin/$BRANCH"
+            if git push origin "HEAD:$BRANCH"; then
+              echo "Pushed successfully on attempt $i"
+              exit 0
+            fi
+            echo "Push attempt $i failed, retrying after fetch + rebase..."
+          done
+          echo "Push failed after 3 attempts"
+          exit 1

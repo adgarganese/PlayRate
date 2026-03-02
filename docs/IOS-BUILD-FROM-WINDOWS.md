@@ -89,11 +89,33 @@ git push -u origin main
 4. If any step fails:
    - **“Install dependencies”** fails: ensure `package-lock.json` is committed and `npm ci` works locally.
    - **“Generate iOS project”** fails: check the log for Expo/Node errors.
-   - **“Commit and push ios folder”** fails: confirm the repo uses the default branch you pushed (e.g. `main`) and that you have write access.
+   - **“Commit and push ios folder”** fails: use the artifact (see **Part 2.4** below).
+
+### 2.4 If “Commit and push ios folder” fails (workaround)
+
+The workflow uploads the generated **`ios`** folder as an artifact **before** trying to push. So even when the push step fails, you can get `ios` and push it yourself from your PC:
+
+1. Open the **failed** workflow run (click the run, then the **prebuild** job).
+2. Scroll to the **Artifacts** section at the bottom of the run page.
+3. Download **ios-prebuilt** (it’s a zip).
+4. On your PC, open the zip. It contains a single **`ios`** folder.
+5. In your project folder, **delete** any existing `ios` folder (if present), then **copy** the unzipped `ios` folder into the project root (so you have `athlete-app\ios\...`).
+6. Commit and push from your machine:
+   ```powershell
+   cd c:\Users\burto\OneDrive\Desktop\App\athlete-app
+   git add ios
+   git commit -m "chore: add ios from prebuild [skip ci]"
+   git push origin main
+   ```
+7. Then run **Part 4** (EAS build) as usual.
 
 ---
 
-## Part 3: Get the `ios` folder on your Windows PC
+## Part 3: Get the `ios` folder on your Windows PC (required before EAS build)
+
+If you run `eas build` **without** the `ios` folder in your project, EAS will run prebuild on the server and hit:  
+`EACCES: permission denied, mkdir '.../build/.expo/web'`.  
+The only fix is to have `ios` in your project so EAS **skips** prebuild.
 
 ### 3.1 Pull the new commit
 
@@ -115,6 +137,8 @@ dir ios
 ```
 
 You should see the Xcode project (e.g. `PlayRate.xcworkspace` or similar) and native files.
+
+**Before every `eas build --platform ios`:** run `git pull` and confirm `dir ios` shows files. If `ios` is missing, the build will run prebuild and fail with EACCES.
 
 ---
 
