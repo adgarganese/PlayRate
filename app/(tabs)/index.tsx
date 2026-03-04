@@ -25,6 +25,7 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { track, trackOnce } from '@/lib/analytics';
 import { logDevError } from '@/lib/dev-log';
+import { ATHLETES_TAB_ROUTE } from '@/constants/routes';
 
 const HIGHLIGHTS_PREVIEW_LIMIT = 6;
 const HIGHLIGHT_TILE_SIZE = 100;
@@ -291,7 +292,7 @@ export default function HomeScreen() {
               title="No recommendations right now."
               subtitle="Find athletes to follow and message."
               actionLabel="Find Athletes"
-              onAction={() => router.push('/athletes')}
+              onAction={() => router.push(ATHLETES_TAB_ROUTE as any)}
             />
           )}
         </View>
@@ -367,7 +368,7 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <SectionTitle>Find Athletes</SectionTitle>
           <Pressable
-            onPress={() => router.push('/profiles')}
+            onPress={() => router.push(ATHLETES_TAB_ROUTE as any)}
             style={({ pressed }) => [
               styles.findAthletesCard,
               pressed && styles.pressed,

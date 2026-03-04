@@ -19,18 +19,17 @@ export function Screen({
   const insets = useSafeAreaInsets();
   const { colors } = useThemeColors();
 
+  // pointerEvents="box-none" so touches pass through to tab bar when not on interactive content (fixes unclickable tabs on TestFlight).
   return (
-    <View 
+    <View
+      pointerEvents="box-none"
       style={[
         styles.container,
-        { 
-          paddingTop: insets.top,
-          backgroundColor: colors.bg,
-        },
+        { paddingTop: insets.top, backgroundColor: colors.bg },
         style,
       ]}
     >
-      <View style={[styles.content, { paddingHorizontal }, contentContainerStyle]}>
+      <View pointerEvents="box-none" style={[styles.content, { paddingHorizontal }, contentContainerStyle]}>
         {children}
       </View>
     </View>

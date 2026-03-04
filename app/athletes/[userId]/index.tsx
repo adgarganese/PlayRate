@@ -41,6 +41,7 @@ type AttributeRating = {
   cosign_count: number;
   can_cosign: boolean;
   has_cosigned: boolean;
+  is_cosign_pending?: boolean;
 };
 
 type CosignModalState = {
@@ -261,18 +262,22 @@ export default function AthleteDetailScreen() {
         devError('AthleteProfile', 'Error loading cosigns:', cosignsError);
       }
 
-      // Load user's cosigns for this profile (if viewing as logged-in user)
+      // Load user's cosigns for this profile (if viewing as logged-in user); include created_at for pending (30-day) dimming.
       const userCosignedSlugs: Set<string> = new Set();
+      const userCosignCreatedAtBySlug: Record<string, string> = {};
       if (user) {
         const { data: userCosignsData, error: userCosignsError } = await supabase
           .from('cosigns')
-          .select('attribute')
+          .select('attribute, created_at')
           .eq('from_user_id', user.id)
           .eq('to_user_id', userId);
 
         if (!userCosignsError && userCosignsData) {
-          userCosignsData.forEach((cosign) => {
-            if (cosign.attribute) userCosignedSlugs.add(cosign.attribute);
+          userCosignsData.forEach((c: { attribute?: string; created_at?: string }) => {
+            if (c.attribute) {
+              userCosignedSlugs.add(c.attribute);
+              if (c.created_at) userCosignCreatedAtBySlug[c.attribute] = c.created_at;
+            }
           });
         }
       }
@@ -294,6 +299,11 @@ export default function AthleteDetailScreen() {
         seenIds.add(attributeId);
         const slug = attributeNameToSlug(r.sport_attributes?.name ?? '');
         const userHasCosigned = !!(slug && user && userCosignedSlugs.has(slug));
+        const created_at = slug ? userCosignCreatedAtBySlug[slug] : undefined;
+        const COSIGN_PENDING_DAYS = 30;
+        const isCosignPending = userHasCosigned && created_at
+          ? (Date.now() - new Date(created_at).getTime() < COSIGN_PENDING_DAYS * 24 * 60 * 60 * 1000)
+          : false;
         const isOwnProfile = user && user.id === userId;
         const canCosign = !!user && !isOwnProfile && !userHasCosigned;
 
@@ -305,6 +315,7 @@ export default function AthleteDetailScreen() {
           cosign_count: slug ? (cosignCountsBySlug[slug] || 0) : 0,
           can_cosign: canCosign,
           has_cosigned: userHasCosigned,
+          is_cosign_pending: isCosignPending,
         });
       });
 
@@ -334,32 +345,34 @@ export default function AthleteDetailScreen() {
         setIsSubmitting(false);
         return;
       }
-      const insertPayload: any = {
+      // Profile cosigns: run_id may be required by DB. If your schema has run_id NOT NULL, make it nullable for profile cosigns or use an RPC.
+      // Test plan (iPhone TestFlight): Open another user's profile → tap Cosign on a skill → submit; success or clear error (no "invalid or unable").
+      const insertPayload: Record<string, unknown> = {
         from_user_id: user.id,
         to_user_id: userId,
         attribute: attributeSlug,
+        run_id: null,
       };
-
       if (cosignComment.trim()) {
         insertPayload.note = cosignComment.trim();
       }
 
-      // Note: DB requires run_id. If you have a run context, set insertPayload.run_id here.
-      const { error: cosignError } = await supabase
+      const { error: cosignErr } = await supabase
         .from('cosigns')
         .insert(insertPayload);
 
-      if (cosignError) {
+      if (cosignErr) {
+        if (__DEV__) console.warn('[Cosign] Supabase error', { code: cosignErr.code, message: cosignErr.message, details: cosignErr.details, hint: cosignErr.hint });
         let errorMessage = 'Failed to cosign. Please try again.';
-        
-        if (cosignError.code === '23505') {
+        if (cosignErr.code === '23505') {
           errorMessage = 'You\'ve already cosigned this skill.';
-        } else if (cosignError.message.includes('self') || cosignError.message.includes('own')) {
+        } else if (cosignErr.message?.includes('self') || cosignErr.message?.includes('own')) {
           errorMessage = 'You can\'t cosign your own skills.';
+        } else if (cosignErr.message?.includes('run_id') || cosignErr.code === '23502') {
+          errorMessage = 'Cosign from profile isn\'t supported yet. Cosign from a run recap.';
         } else {
           errorMessage = 'Unable to cosign. Please try again.';
         }
-        
         setCosignError(errorMessage);
         setIsSubmitting(false);
         return;
@@ -539,6 +552,7 @@ export default function AthleteDetailScreen() {
                   cosignCount={rating.cosign_count}
                   canCosign={rating.can_cosign}
                   hasCosigned={rating.has_cosigned}
+                  isCosignPending={rating.is_cosign_pending}
                   onCosignPress={() => {
                     setCosignModal({
                       visible: true,

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import { Screen } from '@/components/ui/Screen';
@@ -168,14 +167,16 @@ export default function HighlightCreateScreen() {
         const contentType = isVideo ? 'video/mp4' : `image/${fileExt === 'jpg' ? 'jpeg' : fileExt || 'jpeg'}`;
         const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
-        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        // Use fetch + arrayBuffer for iOS production (file/ph asset URIs); FileSystem base64 can fail on device.
+        // Test plan (iPhone TestFlight): Create highlight via camera or photos → upload succeeds and navigates to highlights list.
+        const { data: { session } } = await supabase.auth.getSession();
+        if (__DEV__ && !session) console.warn('[HighlightCreate] no session at upload');
+        const response = await fetch(uri);
+        const arrayBuffer = await response.arrayBuffer();
 
         const { error: uploadError } = await supabase.storage
           .from(STORAGE_BUCKET_HIGHLIGHTS)
-          .upload(fileName, bytes.buffer, { contentType, upsert: false });
+          .upload(fileName, arrayBuffer, { contentType, upsert: false });
 
         if (uploadError) throw uploadError;
 

@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, Fla
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { Image } from 'expo-image';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -132,15 +131,17 @@ export default function MyHighlightsScreen() {
       const contentType = isVideo ? 'video/mp4' : `image/${fileExt === 'jpg' ? 'jpeg' : (fileExt || 'jpeg')}`;
       const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
+      // Use fetch + arrayBuffer for iOS production (file/ph asset URIs); FileSystem base64 can fail on device.
+      // Test plan (iPhone TestFlight): Pick image/video from library or camera → upload → see in My Highlights and feed.
       if (__DEV__) console.log('[HighlightPost] upload starting', { fileName, contentType });
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (__DEV__ && !session) console.warn('[HighlightPost] no session at upload');
+      const response = await fetch(uri);
+      const arrayBuffer = await response.arrayBuffer();
 
       const { error: uploadError } = await supabase.storage
         .from('highlights')
-        .upload(fileName, bytes.buffer, { contentType, upsert: false });
+        .upload(fileName, arrayBuffer, { contentType, upsert: false });
 
       if (uploadError) {
         if (__DEV__) console.log('[HighlightPost] upload error', uploadError);

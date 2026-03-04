@@ -296,7 +296,7 @@ export default function FindCourtsScreen() {
 
         {/* Loading Overlay */}
         {loading && (
-          <View style={styles.loadingOverlay}>
+          <View style={styles.loadingOverlay} pointerEvents="box-none">
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading courts...</Text>
           </View>

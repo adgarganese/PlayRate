@@ -10,6 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.playrate.app",
+      "buildNumber": "3",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow PlayRate to use your camera to film or photograph highlights.",
         "NSLocationWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
@@ -68,8 +69,8 @@
         "@sentry/react-native/expo",
         {
           "url": "https://sentry.io/",
-          "organization": "your-sentry-org",
-          "project": "your-sentry-project"
+          "organization": "playrate",
+          "project": "playrate"
         }
       ]
     ],

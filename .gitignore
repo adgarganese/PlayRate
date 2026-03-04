@@ -30,9 +30,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (do not commit secrets)
 .env*.local
 .env
+.env.txt
 
 # typescript
 *.tsbuildinfo
@@ -41,3 +42,5 @@ app-example
 
 # generated native folders (ios committed so EAS skips prebuild; android still generated on EAS)
 /android
+
+.env.local

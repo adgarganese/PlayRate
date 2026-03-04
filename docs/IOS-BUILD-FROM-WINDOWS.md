@@ -4,6 +4,21 @@ Use GitHub’s Mac runner to generate the `ios` folder once. Then EAS Build can 
 
 ---
 
+## Finish iOS setup — quick path
+
+If you want to get to a successful EAS iOS build as fast as possible:
+
+| # | Step | Command / action |
+|---|------|-------------------|
+| 1 | Repo on GitHub | Push your project to GitHub if you haven’t (see Part 1). |
+| 2 | Get `ios` folder | **Option A:** Run **Actions → Prebuild iOS → Run workflow**, then `git pull`. **Option B:** If `ios` is already in the repo, just `git pull`. |
+| 3 | Sentry (so build doesn’t fail) | In **app.json** and **ios/sentry.properties** replace `your-sentry-org` and `your-sentry-project` with your Sentry org/project. Ensure **SENTRY_AUTH_TOKEN** is set in EAS for production/preview. Or temporarily set **SENTRY_DISABLE_AUTO_UPLOAD** = `true` in EAS env to skip uploads. |
+| 4 | Run EAS iOS build | `eas build --platform ios --profile production` (or `preview`). |
+
+Details for each step are in the sections below.
+
+---
+
 ## Prerequisites
 
 - Git installed and configured (`git config user.name`, `git config user.email`).
@@ -178,14 +193,31 @@ eas build --platform ios --profile production
 | 5 | Wait for the workflow to finish (green). |
 | 6 | Locally: `git pull origin main`. |
 | 7 | Check that the **`ios`** folder exists. |
-| 8 | Run: `eas build --platform ios --profile production` (or `preview`). |
+| 8 | **Sentry:** Replace `your-sentry-org` / `your-sentry-project` in **app.json** and **ios/sentry.properties**, and set **SENTRY_AUTH_TOKEN** in EAS (or set **SENTRY_DISABLE_AUTO_UPLOAD** = `true` to skip uploads). See **docs/SENTRY-SETUP.md**. |
+| 9 | Run: `eas build --platform ios --profile production` (or `preview`). |
+
+---
+
+## Before submitting to TestFlight (git commit)
+
+**Note:** For the TestFlight run that included the tab bar / in-app video / cosign / Add Court fixes, we did **not** run `git add` / `git commit` / `git push` before building and submitting. **Next time**, commit and push before you build so the repo matches what’s in the build:
+
+```powershell
+git add .
+git status
+git commit -m "Your short description of changes"
+git push
+```
+
+Then run `eas build` and `eas submit`. That way you have a clear commit for each TestFlight build.
 
 ---
 
 ## If something goes wrong
 
-- **Workflow can’t push:** Make sure you’re on the correct branch and that **Settings → Actions → General** allows “Read and write permissions” for the GITHUB_TOKEN (or use a fine-grained PAT with repo write).
+- **Workflow can’t push:** Make sure you’re on the correct branch and that **Settings → Actions → General** allows “Read and write permissions” for the GITHUB_TOKEN (or use a fine-grained PAT with repo write). You can still download the **ios-prebuilt** artifact and push `ios` yourself (Part 2.4).
 - **EAS build still runs prebuild:** Ensure `ios` is present and committed and that you didn’t add `ios` to `.gitignore`.
+- **Sentry upload fails (e.g. “Auth token is required”):** Set **SENTRY_AUTH_TOKEN** in EAS (production/preview). If you’re not ready for Sentry, set **SENTRY_DISABLE_AUTO_UPLOAD** = `true` in EAS env so the build doesn’t fail. See **docs/SENTRY-SETUP.md**.
 - **EAS build fails for another reason:** Check the EAS build log (credentials, signing, or app config).
 
 Once the **Prebuild iOS** workflow has run once and you’ve pulled the `ios` folder, you only need to run **Part 4** again for future iOS builds from Windows.

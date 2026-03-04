@@ -11,6 +11,7 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ListRenderItem,
@@ -106,7 +107,10 @@ const MessageBubble = React.memo(function MessageBubble({
 });
 
 const INPUT_BAR_MIN_HEIGHT = 56;
-const LIST_PADDING_BOTTOM_EXTRA = 16;
+const LIST_PADDING_BOTTOM_EXTRA = 24;
+/** Offset so input bar sits above keyboard on iOS (status bar + header).
+ * Test plan (iPhone TestFlight): Open DM → focus input → keyboard opens, input stays above it; last message visible; scroll down a bit to see space; drag list to dismiss keyboard. */
+const KEYBOARD_AVOID_OFFSET = 88;
 
 export default function ChatScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -118,8 +122,22 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const listRef = useRef<FlatList>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const id = conversationId ?? '';
 
@@ -223,7 +241,7 @@ export default function ChatScreen() {
   }
 
   const inputBarPaddingBottom = Spacing.sm + insets.bottom;
-  const listPaddingBottom = INPUT_BAR_MIN_HEIGHT + inputBarPaddingBottom + LIST_PADDING_BOTTOM_EXTRA;
+  const listPaddingBottom = INPUT_BAR_MIN_HEIGHT + inputBarPaddingBottom + LIST_PADDING_BOTTOM_EXTRA + keyboardHeight;
 
   return (
     <Screen style={styles.screen}>
@@ -231,7 +249,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={[styles.kav, { backgroundColor: colors.bg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={KEYBOARD_AVOID_OFFSET}
       >
         <FlatList
           ref={listRef}
@@ -243,6 +261,7 @@ export default function ChatScreen() {
             { paddingBottom: listPaddingBottom },
           ]}
           contentInsetAdjustmentBehavior="never"
+          keyboardDismissMode="on-drag"
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           ListEmptyComponent={
             loading ? (

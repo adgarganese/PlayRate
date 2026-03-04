@@ -24,7 +24,7 @@ import {
 } from '@/lib/analytics';
 import { initSentry, setSentryUser, setSentryRoute, isSentryEnabled, Sentry } from '@/lib/sentry';
 
-// Enable Sentry only when DSN is set (e.g. beta builds)
+// Enable Sentry only when EXPO_PUBLIC_SENTRY_DSN is set (e.g. EAS production/preview builds)
 initSentry();
 
 // Keep splash screen visible while loading fonts

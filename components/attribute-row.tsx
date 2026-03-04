@@ -11,6 +11,8 @@ type AttributeRowProps = {
   canCosign?: boolean;
   /** Whether the current user has already cosigned this attribute */
   hasCosigned?: boolean;
+  /** Cosign is within pending window (e.g. 30 days); show pill dimmed */
+  isCosignPending?: boolean;
   /** Loading state for cosign action */
   cosignLoading?: boolean;
   onCosignPress?: () => void;
@@ -52,6 +54,7 @@ export default function AttributeRow({
             <CosignButton
               count={cosignCount}
               cosigned={hasCosigned}
+              isPending={isCosignPending}
               loading={cosignLoading}
               disabled={!canCosign || hasCosigned}
               onPress={onCosignPress || (() => {})}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, Dimensions, Linking, Share } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, Dimensions, Share } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Video, ResizeMode } from 'expo-av';
 import { Image } from 'expo-image';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -11,6 +12,22 @@ import { ProfilePicture } from '@/components/ProfilePicture';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
+
+/** In-app video playback (no external browser). How to verify on iPhone TestFlight: open a video highlight → plays inside the app. */
+function HighlightVideo({ uri, thumbnailUri }: { uri: string; thumbnailUri: string | null }) {
+  if (!uri) {
+    return <Image source={{ uri: thumbnailUri || undefined }} style={StyleSheet.absoluteFill} contentFit="contain" />;
+  }
+  return (
+    <Video
+      source={{ uri }}
+      style={StyleSheet.absoluteFill}
+      useNativeControls
+      resizeMode={ResizeMode.CONTAIN}
+      isLooping
+    />
+  );
+}
 
 type Highlight = {
   id: string;
@@ -190,22 +207,13 @@ export default function HighlightDetailScreen() {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.mediaContainer, { width: screenWidth - Spacing.lg * 2, aspectRatio: 1 }]}
-          onPress={() => highlight.media_type === 'video' && Linking.openURL(highlight.media_url)}
-          activeOpacity={highlight.media_type === 'video' ? 0.8 : 1}
-        >
+        <View style={[styles.mediaContainer, { width: screenWidth - Spacing.lg * 2, aspectRatio: 1 }]}>
           {highlight.media_type === 'video' ? (
-            <View style={styles.videoContainer}>
-              <Image source={{ uri: highlight.thumbnail_url || highlight.media_url }} style={styles.image} contentFit="contain" />
-              <View style={styles.playOverlay}>
-                <IconSymbol name="play.rectangle.fill" size={64} color="rgba(255,255,255,0.9)" />
-              </View>
-            </View>
+            <HighlightVideo uri={highlight.media_url} thumbnailUri={highlight.thumbnail_url || highlight.media_url} />
           ) : (
             <Image source={{ uri: highlight.media_url }} style={styles.image} contentFit="contain" />
           )}
-        </TouchableOpacity>
+        </View>
 
         <View style={styles.actions}>
           {!isOwn && (

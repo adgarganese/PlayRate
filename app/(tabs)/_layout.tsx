@@ -4,6 +4,7 @@ import React from 'react';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
+import { ATHLETES_TAB_ROUTE } from '@/constants/routes';
 
 export default function TabLayout() {
   const { colors, isDark } = useThemeColors();
@@ -17,8 +18,8 @@ export default function TabLayout() {
           backgroundColor: isDark ? colors.bg : colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          elevation: 16,
-          zIndex: 10,
+          elevation: 9999,
+          zIndex: 9999,
         },
         headerShown: false,
       }}>
@@ -70,7 +71,8 @@ export default function TabLayout() {
           title: 'Athletes',
           tabBarLabel: 'Athletes',
           tabBarAccessibilityLabel: 'Athletes',
-          href: '/(tabs)/athletes',
+          href: ATHLETES_TAB_ROUTE,
+          tabBarButton: (props) => <HapticTab {...props} />,
           tabBarIcon: ({ focused }) => (
             <IconSymbol
               name="person.3.fill"

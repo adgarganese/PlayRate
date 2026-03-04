@@ -7,6 +7,10 @@ import { useAuth } from '@/contexts/auth-context';
 import { useThemeColors } from '@/contexts/theme-context';
 import { IconSymbol } from './ui/icon-symbol';
 
+/** Storage bucket for profile pictures. Must exist in Supabase (Storage). If you see "Bucket not found", create it in the dashboard.
+ * Test plan (iPhone TestFlight): Profile → tap avatar → choose photo → upload succeeds or shows clear bucket-message. */
+const AVATAR_BUCKET = 'avatars';
+
 type ProfilePictureProps = {
   avatarUrl: string | null;
   size?: number;
@@ -67,29 +71,25 @@ export function ProfilePicture({
 
     setUploading(true);
     try {
-      // Convert image to blob
+      // Path: avatars/{userId}/{timestamp}.ext for consistent RLS (e.g. allow user to upload to avatars/{userId}/*)
       const response = await fetch(uri);
       const blob = await response.blob();
-      const fileExt = uri.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      const fileExt = (uri.split('.').pop() || 'jpg').toLowerCase();
+      const contentType = fileExt === 'jpg' ? 'image/jpeg' : `image/${fileExt}`;
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
-      // Upload to Supabase storage
       const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, blob, {
-          contentType: `image/${fileExt}`,
-          upsert: true,
-        });
+        .from(AVATAR_BUCKET)
+        .upload(fileName, blob, { contentType, upsert: true });
 
       if (uploadError) {
+        if (__DEV__) console.warn('[ProfilePicture] storage error', uploadError.message, uploadError.name, (uploadError as { code?: string }).code);
         throw uploadError;
       }
 
-      // Get public URL
       const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
+        .from(AVATAR_BUCKET)
+        .getPublicUrl(fileName);
 
       // Update profile in database
       const { error: updateError } = await supabase
@@ -110,8 +110,13 @@ export function ProfilePicture({
         onUpdate(publicUrl);
       }
     } catch (error: unknown) {
-      console.error('Error uploading image:', error);
-      const message = error instanceof Error ? error.message : 'Failed to upload image. Please try again.';
+      const err = error as { message?: string; code?: string };
+      if (__DEV__) console.warn('[ProfilePicture] upload error', err?.message, err?.code);
+      const msg = error && typeof error === 'object' && 'message' in error ? String((error as { message?: string }).message) : '';
+      const isBucketNotFound = /bucket.*not found|not found|Object not found/i.test(msg);
+      const message = isBucketNotFound
+        ? `Storage bucket "${AVATAR_BUCKET}" doesn't exist. Create it in Supabase (Storage) and ensure RLS allows authenticated uploads to avatars/{user_id}/*.`
+        : (error instanceof Error ? error.message : 'Failed to upload image. Please try again.');
       Alert.alert('Upload Failed', message);
     } finally {
       setUploading(false);

@@ -58,4 +58,13 @@ export function setSentryRoute(route: string): void {
   Sentry.setTag('route', route);
 }
 
+/** Call to send a test event to Sentry. Use this to verify setup (e.g. from a dev/settings screen). */
+export function captureSentryTestEvent(): void {
+  if (!initialized) {
+    console.warn('[Sentry] Not initialized (EXPO_PUBLIC_SENTRY_DSN not set). No test event sent.');
+    return;
+  }
+  Sentry.captureMessage('PlayRate Sentry test event', 'info');
+}
+
 export { Sentry };

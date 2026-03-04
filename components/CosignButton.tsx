@@ -21,6 +21,8 @@ type CosignButtonProps = {
   disabled?: boolean;
   /** Whether already cosigned (active state) */
   cosigned?: boolean;
+  /** Within pending window (e.g. 30 days); dim the pill (opacity only) */
+  isPending?: boolean;
   /** Press handler */
   onPress: () => void;
   /** Optional style overrides */
@@ -104,7 +106,7 @@ export function CosignButton({
   const icon = cosigned ? 'checkmark.circle.fill' : 'medal.fill';
 
   return (
-    <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style]}>
+    <Animated.View style={[{ transform: [{ scale: scaleAnim }], opacity: pendingOpacity }, style]}>
       <Pressable
         onPress={handlePress}
         onPressIn={handlePressIn}
