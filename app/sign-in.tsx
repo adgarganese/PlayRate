@@ -43,20 +43,26 @@ export default function SignInScreen() {
     }
 
     setLoading(true);
-    const { error } = await signIn(email, password);
-    setLoading(false);
+    try {
+      const { error } = await signIn(email, password);
+      setLoading(false);
 
-    if (error) {
-      let friendlyMessage = error.message;
-      if (error.message.includes('Invalid login credentials')) {
-        friendlyMessage = 'Email or password is incorrect. Please try again.';
-      } else if (error.message.includes('Email not confirmed')) {
-        friendlyMessage = 'Please check your email and confirm your account first.';
+      if (error) {
+        let friendlyMessage = error.message;
+        if (error.message.includes('Invalid login credentials')) {
+          friendlyMessage = 'Email or password is incorrect. Please try again.';
+        } else if (error.message.includes('Email not confirmed')) {
+          friendlyMessage = 'Please check your email and confirm your account first.';
+        }
+        Alert.alert('Sign In', friendlyMessage);
+      } else {
+        track('login_completed', { method: 'email' });
+        router.replace('/(tabs)');
       }
-      Alert.alert('Sign In', friendlyMessage);
-    } else {
-      track('login_completed', { method: 'email' });
-      router.replace('/(tabs)');
+    } catch (err) {
+      setLoading(false);
+      if (__DEV__) console.warn('[SignIn] signIn threw', err);
+      Alert.alert('Sign In', err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     }
   };
 

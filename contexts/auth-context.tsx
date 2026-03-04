@@ -27,10 +27,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-      
-      // Ensure profile exists when session is available
       if (session?.user) {
-        ensureProfileExists(session.user.id);
+        ensureProfileExists(session.user.id).catch((e) => {
+          if (__DEV__) console.warn('[Auth] ensureProfileExists (initial)', e);
+        });
       }
     });
 
@@ -41,24 +41,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-      
-      // Ensure profile exists when user signs in or email is confirmed
+
       if (session?.user) {
-        await ensureProfileExists(session.user.id);
+        try {
+          await ensureProfileExists(session.user.id);
+        } catch (e) {
+          if (__DEV__) console.warn('[Auth] ensureProfileExists', e);
+        }
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Helper function to ensure profile exists
+  // Helper function to ensure profile exists (use maybeSingle to avoid throw when no row - .single() crashes on TestFlight)
   const ensureProfileExists = async (userId: string) => {
-    // Check if profile exists
     const { data: existingProfile } = await supabase
       .from('profiles')
       .select('user_id')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     // If no profile exists, try to create one
     if (!existingProfile) {

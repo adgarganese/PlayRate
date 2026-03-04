@@ -179,7 +179,7 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
           .select('play_style')
           .eq('user_id', effectiveUserId)
           .eq('sport_id', activeSportId)
-          .single();
+          .maybeSingle();
 
         playStyle = sportProfile?.play_style || null;
       }
@@ -190,7 +190,7 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
           .from('profiles')
           .select('play_style')
           .eq('user_id', effectiveUserId)
-          .single();
+          .maybeSingle();
         playStyle = legacyProfile?.play_style || null;
       }
 
