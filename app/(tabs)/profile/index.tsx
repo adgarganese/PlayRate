@@ -171,7 +171,7 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Unable to save.');
       return;
     }
-    const { data: cp } = await supabase.from('profiles').select('active_sport_id').eq('user_id', user.id).single();
+    const { data: cp } = await supabase.from('profiles').select('active_sport_id').eq('user_id', user.id).maybeSingle();
     if (cp?.active_sport_id) {
       await supabase.from('sport_profiles').upsert({ user_id: user.id, sport_id: cp.active_sport_id, play_style: playStyleValue, updated_at: new Date().toISOString() }, { onConflict: 'user_id,sport_id' });
     }

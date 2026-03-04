@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
@@ -60,11 +60,17 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
   const [userSports, setUserSports] = useState<Sport[]>([]);
   const [showSportSelector, setShowSportSelector] = useState(false);
   const [switchingSport, setSwitchingSport] = useState(false);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (effectiveUserId) {
+      retryCountRef.current = 0;
       loadSnapshot();
     }
+    return () => {
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveUserId]);
 
@@ -113,6 +119,14 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
       if (profileError || !profile) {
         if (__DEV__) console.error('Unable to load profile');
         setLoading(false);
+        // Retry once after delay (new user: profile may be created by ensureProfileExists shortly)
+        if (retryCountRef.current < 1) {
+          retryCountRef.current += 1;
+          retryTimeoutRef.current = setTimeout(() => {
+            retryTimeoutRef.current = null;
+            loadSnapshot();
+          }, 800);
+        }
         return;
       }
 

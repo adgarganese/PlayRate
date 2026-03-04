@@ -23,9 +23,39 @@ import {
   POSTHOG_HOST,
 } from '@/lib/analytics';
 import { initSentry, setSentryUser, setSentryRoute, isSentryEnabled, Sentry } from '@/lib/sentry';
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://6e36fe1cd6a87d637f6080a0e87eecc4@o4510972662841344.ingest.us.sentry.io/4510972753149952',
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: false,
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
 
 // Enable Sentry only when EXPO_PUBLIC_SENTRY_DSN is set (e.g. EAS production/preview builds)
 initSentry();
+
+// Catch unhandled promise rejections so they don't crash the app (e.g. Supabase .single() throw)
+const g = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : undefined;
+if (g && typeof (g as any).addEventListener === 'function') {
+  (g as any).addEventListener('unhandledrejection', (event: { reason?: unknown; preventDefault?: () => void }) => {
+    const err = event?.reason;
+    if (err && isSentryEnabled() && Sentry?.captureException) {
+      Sentry.captureException(err, { extra: { unhandledRejection: true } });
+    }
+    if (__DEV__ && err) console.warn('[unhandledRejection]', err);
+    try {
+      event?.preventDefault?.();
+    } catch (_) {}
+  });
+}
 
 // Keep splash screen visible while loading fonts
 SplashScreen.preventAutoHideAsync();

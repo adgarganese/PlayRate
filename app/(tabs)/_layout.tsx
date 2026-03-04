@@ -1,15 +1,27 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import React from 'react';
 
+import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useAuth } from '@/contexts/auth-context';
 import { useThemeColors } from '@/contexts/theme-context';
 import { ATHLETES_TAB_ROUTE } from '@/constants/routes';
 
 export default function TabLayout() {
   const { colors, isDark } = useThemeColors();
+  const { signOut } = useAuth();
+  const router = useRouter();
+
+  const handleErrorSignOut = React.useCallback(async () => {
+    await signOut();
+    router.replace('/sign-in');
+  }, [signOut, router]);
 
   return (
+    <AppErrorBoundary
+      fallbackMessage="Something went wrong after signing in. Tap Try again to continue."
+      onSignOut={handleErrorSignOut}>
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
@@ -95,5 +107,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </AppErrorBoundary>
   );
 }
