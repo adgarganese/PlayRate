@@ -10,7 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.playrate.app",
-      "buildNumber": "7",
+      "buildNumber": "11",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow PlayRate to use your camera to film or photograph highlights.",
         "NSLocationWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
