@@ -34,6 +34,7 @@ export function CosignButton({
   loading = false,
   disabled = false,
   cosigned = false,
+  isPending = false,
   onPress,
   style,
 }: CosignButtonProps) {
@@ -41,6 +42,7 @@ export function CosignButton({
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const badgeScaleAnim = useRef(new Animated.Value(1)).current;
   const isDisabled = disabled || loading;
+  const pendingOpacity = isPending ? 0.5 : 1;
 
   // Gold accent colors
   const goldColor = AccentColors.goldTier;

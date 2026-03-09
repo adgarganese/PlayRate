@@ -262,7 +262,7 @@ export default function AthleteDetailScreen() {
         devError('AthleteProfile', 'Error loading cosigns:', cosignsError);
       }
 
-      // Load user's cosigns for this profile (if viewing as logged-in user); include created_at for pending (30-day) dimming.
+      // Load user's cosigns for this profile (if viewing as logged-in user); order by created_at desc so we keep latest per attribute for 30-day cooldown.
       const userCosignedSlugs: Set<string> = new Set();
       const userCosignCreatedAtBySlug: Record<string, string> = {};
       if (user) {
@@ -270,13 +270,16 @@ export default function AthleteDetailScreen() {
           .from('cosigns')
           .select('attribute, created_at')
           .eq('from_user_id', user.id)
-          .eq('to_user_id', userId);
+          .eq('to_user_id', userId)
+          .order('created_at', { ascending: false });
 
         if (!userCosignsError && userCosignsData) {
           userCosignsData.forEach((c: { attribute?: string; created_at?: string }) => {
             if (c.attribute) {
               userCosignedSlugs.add(c.attribute);
-              if (c.created_at) userCosignCreatedAtBySlug[c.attribute] = c.created_at;
+              if (c.created_at && !userCosignCreatedAtBySlug[c.attribute]) {
+                userCosignCreatedAtBySlug[c.attribute] = c.created_at;
+              }
             }
           });
         }
@@ -305,7 +308,7 @@ export default function AthleteDetailScreen() {
           ? (Date.now() - new Date(created_at).getTime() < COSIGN_PENDING_DAYS * 24 * 60 * 60 * 1000)
           : false;
         const isOwnProfile = user && user.id === userId;
-        const canCosign = !!user && !isOwnProfile && !userHasCosigned;
+        const canCosign = !!user && !isOwnProfile && (!userHasCosigned || !isCosignPending);
 
         ratingsArray.push({
           attribute_id: attributeId,
@@ -380,21 +383,8 @@ export default function AthleteDetailScreen() {
 
       await playInitialBuzz();
 
-      setRatings((prevRatings) => {
-        return prevRatings.map((rating) => {
-          if (rating.attribute_id === cosignModal.attributeId) {
-            return {
-              ...rating,
-              cosign_count: rating.cosign_count + 1,
-              can_cosign: false,
-              has_cosigned: true,
-            };
-          }
-          return rating;
-        });
-      });
-
       closeCosignModal();
+      if (selectedSportId) loadRatingsForSport(selectedSportId);
     } catch (err: any) {
       setCosignError(err.message || 'An unexpected error occurred.');
     } finally {
@@ -553,6 +543,7 @@ export default function AthleteDetailScreen() {
                   canCosign={rating.can_cosign}
                   hasCosigned={rating.has_cosigned}
                   isCosignPending={rating.is_cosign_pending}
+                  cosignLoading={cosignModal?.attributeId === rating.attribute_id && isSubmitting}
                   onCosignPress={() => {
                     setCosignModal({
                       visible: true,
@@ -610,7 +601,7 @@ function CosignModal({
             {sportName}: {attributeName}
           </Text>
           <Text style={[modalStyles.hint, { color: colors.textMuted }]}>
-            You can only cosign each skill once.
+            You can cosign each skill once every 30 days.
           </Text>
 
           {error && (

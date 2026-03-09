@@ -11,6 +11,10 @@ export const COSIGN_ATTRIBUTES = [
   'hustle',
   'athleticism',
   'leadership',
+  'dribbling',
+  'perimeter-defense',
+  'playmaking',
+  'post-defense',
 ] as const;
 
 export type CosignAttribute = (typeof COSIGN_ATTRIBUTES)[number];
@@ -26,15 +30,39 @@ export const COSIGN_ATTRIBUTE_LABELS: Record<CosignAttribute, string> = {
   hustle: 'Hustle',
   athleticism: 'Athleticism',
   leadership: 'Leadership',
+  dribbling: 'Dribbling',
+  'perimeter-defense': 'Perimeter Defense',
+  playmaking: 'Playmaking',
+  'post-defense': 'Post Defense',
 };
+
+/** Normalize a display name to slug form (e.g. "Perimeter Defense" -> "perimeter-defense") for matching. */
+function nameToSlugForm(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[\s/]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
 
 /** Map display name to cosigns.attribute slug (e.g. "Shooting" -> "shooting"). Returns null if not in enum. */
 export function attributeNameToSlug(name: string): CosignAttribute | null {
   const normalized = name.trim();
+  // 1) Exact or case-insensitive label match
   const entry = (Object.entries(COSIGN_ATTRIBUTE_LABELS) as [CosignAttribute, string][]).find(
     ([, v]) => v === normalized || v.toLowerCase() === normalized.toLowerCase()
   );
-  return entry ? entry[0] : null;
+  if (entry) return entry[0];
+  // 2) Slug-form match: DB may store slug or name that normalizes to our slug (e.g. "perimeter defense" -> "perimeter-defense")
+  const slugForm = nameToSlugForm(normalized);
+  const slugMatch = (COSIGN_ATTRIBUTES as readonly string[]).indexOf(slugForm);
+  if (slugMatch !== -1) return COSIGN_ATTRIBUTES[slugMatch];
+  // 3) Substring fallback for labels
+  const lower = normalized.toLowerCase().replace(/[-\\s]+/g, ' ');
+  const bySubstring = (Object.entries(COSIGN_ATTRIBUTE_LABELS) as [CosignAttribute, string][]).find(
+    ([slug, label]) => lower.includes(label.toLowerCase()) || label.toLowerCase().includes(lower)
+  );
+  return bySubstring ? bySubstring[0] : null;
 }
 
 const REP_LEVEL_THRESHOLDS = [0, 5, 15, 30, 50, 80] as const; // Level 1..6

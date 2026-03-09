@@ -25,6 +25,7 @@ export default function AttributeRow({
   cosignCount,
   canCosign = false,
   hasCosigned = false,
+  isCosignPending = false,
   cosignLoading = false,
   onCosignPress,
 }: AttributeRowProps) {
@@ -53,10 +54,10 @@ export default function AttributeRow({
           <View style={styles.cosignButtonWrap}>
             <CosignButton
               count={cosignCount}
-              cosigned={hasCosigned}
+              cosigned={hasCosigned && isCosignPending}
               isPending={isCosignPending}
               loading={cosignLoading}
-              disabled={!canCosign || hasCosigned}
+              disabled={!canCosign || cosignLoading}
               onPress={onCosignPress || (() => {})}
             />
           </View>

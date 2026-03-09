@@ -15,6 +15,7 @@ import {
   getCourtRatingInfo,
   submitCourtRating,
   fetchCourtPhotos,
+  getPrimaryCourtPhoto,
   type Court,
   type LeaderboardEntry,
   type CourtRatingInfo,
@@ -551,7 +552,7 @@ export default function CourtDetailScreen() {
                 {photos.length > 0 ? (
                   <>
                     <Image
-                      source={{ uri: [...photos].sort((a, b) => a.slot - b.slot)[0].url }}
+                      source={{ uri: getPrimaryCourtPhoto(photos)!.url }}
                       style={styles.courtThumbnailImage}
                       contentFit="cover"
                     />

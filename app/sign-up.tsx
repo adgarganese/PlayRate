@@ -77,7 +77,7 @@ export default function SignUpScreen() {
           .from('profiles')
           .select('user_id')
           .eq('user_id', session.user.id)
-          .single();
+          .maybeSingle();
         
         if (profile) {
           profileMessage = '\n\nYour profile has been created successfully!';

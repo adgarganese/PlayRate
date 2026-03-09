@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Sentry } from '@/lib/sentry';
+import { logCaughtError } from '@/lib/auth-diagnostics';
 
 type Props = {
   children: ReactNode;
@@ -31,7 +32,7 @@ export class AppErrorBoundary extends Component<Props, State> {
       Sentry.captureException(error, { extra: { componentStack: errorInfo.componentStack } });
     }
     if (__DEV__) {
-      console.error('[AppErrorBoundary]', error, errorInfo.componentStack);
+      logCaughtError(error);
     }
   }
 
@@ -51,7 +52,7 @@ export class AppErrorBoundary extends Component<Props, State> {
         <View style={styles.container}>
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.message}>
-            {this.props.fallbackMessage ?? 'We hit an error. Try again or restart the app.'}
+            {this.state.error?.message ?? this.props.fallbackMessage ?? 'We hit an error. Try again or restart the app.'}
           </Text>
           <Pressable onPress={this.handleRetry} style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}>
             <Text style={styles.buttonText}>Try again</Text>

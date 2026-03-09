@@ -267,7 +267,7 @@ export default function ProfileScreen() {
       .from('profiles')
       .select('active_sport_id')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
     const activeSportId = currentProfile?.active_sport_id;
     

@@ -22,18 +22,23 @@ function getOptional(key: string, envKey: string): string | undefined {
   return value && String(value).trim() ? String(value) : undefined;
 }
 
-/** Supabase project URL. Required for app to function. */
+/** Supabase project URL. Required for app to function. Reads from process.env.EXPO_PUBLIC_SUPABASE_URL (and extra). */
 export const supabaseUrl = get(
   'supabaseUrl',
   'EXPO_PUBLIC_SUPABASE_URL',
   'https://nhqhkwvmludnsblimjeu.supabase.co'
 );
 
-/** Supabase anon/public key. Required for app to function. */
+/** Supabase anon/public key. Required for app to function. Reads from process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY (and extra). */
 export const supabaseAnonKey = get(
   'supabaseAnonKey',
   'EXPO_PUBLIC_SUPABASE_ANON_KEY',
   ''
+);
+
+/** True only when both URL and anon key are set (so Supabase auth will work). */
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl && String(supabaseUrl).trim() && supabaseAnonKey && String(supabaseAnonKey).trim()
 );
 
 /** PostHog API key. Empty disables analytics (no crash). */

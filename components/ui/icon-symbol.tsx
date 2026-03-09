@@ -33,6 +33,7 @@ const MAPPING = {
   'star': 'star-border',
   'info.circle.fill': 'info',
   'bell.fill': 'notifications',
+  'envelope.fill': 'mail',
   'pencil': 'edit',
   'camera.fill': 'camera-alt',
   'magnifyingglass': 'search',

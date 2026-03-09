@@ -42,7 +42,7 @@ function formatCount(count: number): string {
 }
 
 export default function ProfileScreen() {
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { followersCount, followingCount } = useFollow(user?.id ?? null);
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -182,13 +182,6 @@ export default function ProfileScreen() {
     await loadProfile();
   };
 
-  const handleSignOut = async () => {
-    Alert.alert('Sign Out', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: async () => { await signOut(); router.replace('/sign-in'); } },
-    ]);
-  };
-
   if (authLoading || loading) return <LoadingScreen message="Loading profile..." />;
   if (!user || !profile) return <ErrorScreen message="Profile not found" onRetry={loadProfile} retryLabel="Retry" />;
 
@@ -202,11 +195,11 @@ export default function ProfileScreen() {
           <View style={styles.headerRight}>
             <NotificationsAndInboxIcons />
             <TouchableOpacity
-              onPress={() => router.push('account' as any)}
+              onPress={() => router.push('/profile/account' as any)}
               accessibilityLabel="Account & Security"
               accessibilityRole="button"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={styles.headerIconButton}
+              style={[styles.headerIconButton, { zIndex: 11, marginLeft: Spacing.sm }]}
             >
               <IconSymbol name="gearshape.fill" size={24} color={colors.textMuted} />
             </TouchableOpacity>
@@ -274,24 +267,28 @@ export default function ProfileScreen() {
           icon="pencil"
           label="Edit Profile"
           onPress={() => setEditing(true)}
+          showChevron={false}
           style={styles.pill}
         />
         <ProfileNavPill
           icon="sportscourt.fill"
           label="My Sports"
           onPress={() => router.push('/my-sports')}
+          showChevron={false}
           style={styles.pill}
         />
         <ProfileNavPill
           icon="play.rectangle.fill"
           label="My Highlights"
           onPress={() => router.push('/profile/highlights' as any)}
+          showChevron={false}
           style={styles.pill}
         />
         <ProfileNavPill
           icon="star.fill"
           label="Rate Yourself"
           onPress={() => router.push('/self-ratings')}
+          showChevron={false}
           style={styles.pill}
         />
       </View>
@@ -362,15 +359,6 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Card>
-
-      <View style={styles.buttonSpacing} />
-      <ProfileNavPill
-        icon="arrow.right.square.fill"
-        label="Sign out"
-        onPress={handleSignOut}
-        showChevron={false}
-        style={styles.signOutButton}
-      />
     </KeyboardScreen>
   );
 }
@@ -417,5 +405,4 @@ const styles = StyleSheet.create({
   buttonRow: { flexDirection: 'row', marginTop: Spacing.md },
   halfButton: { flex: 1 },
   buttonSpacing: { width: Spacing.md },
-  signOutButton: { marginHorizontal: Spacing.lg, marginTop: Spacing.sm },
 });

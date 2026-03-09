@@ -1,12 +1,12 @@
 import { Tabs, useRouter } from 'expo-router';
 import React from 'react';
+import * as Haptics from 'expo-haptics';
+import { Platform } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/contexts/auth-context';
 import { useThemeColors } from '@/contexts/theme-context';
-import { ATHLETES_TAB_ROUTE } from '@/constants/routes';
 
 export default function TabLayout() {
   const { colors, isDark } = useThemeColors();
@@ -23,6 +23,13 @@ export default function TabLayout() {
       fallbackMessage="Something went wrong after signing in. Tap Try again to continue."
       onSignOut={handleErrorSignOut}>
     <Tabs
+      screenListeners={{
+        tabPress: () => {
+          if (Platform.OS === 'ios') {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          }
+        },
+      }}
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
@@ -39,7 +46,6 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarButton: (props) => <HapticTab {...props} />,
           tabBarIcon: ({ focused }) => (
             <IconSymbol
               size={28}
@@ -53,7 +59,6 @@ export default function TabLayout() {
         name="highlights"
         options={{
           title: 'Highlights',
-          tabBarButton: (props) => <HapticTab {...props} />,
           tabBarIcon: ({ focused }) => (
             <IconSymbol
               size={28}
@@ -67,7 +72,6 @@ export default function TabLayout() {
         name="courts"
         options={{
           title: 'Courts',
-          tabBarButton: (props) => <HapticTab {...props} />,
           tabBarIcon: ({ focused }) => (
             <IconSymbol
               size={28}
@@ -83,8 +87,6 @@ export default function TabLayout() {
           title: 'Athletes',
           tabBarLabel: 'Athletes',
           tabBarAccessibilityLabel: 'Athletes',
-          href: ATHLETES_TAB_ROUTE,
-          tabBarButton: (props) => <HapticTab {...props} />,
           tabBarIcon: ({ focused }) => (
             <IconSymbol
               name="person.3.fill"
@@ -92,7 +94,7 @@ export default function TabLayout() {
               color={focused ? colors.primary : colors.textMuted}
             />
           ),
-        } as any}
+        }}
       />
       <Tabs.Screen
         name="profile"

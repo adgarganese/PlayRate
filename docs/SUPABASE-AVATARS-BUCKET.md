@@ -1,10 +1,10 @@
 # Supabase: Create "avatars" bucket and Storage RLS
 
-Profile picture upload fails with "Bucket not found" until the bucket exists and RLS is set. Do this in the Supabase dashboard (not from the client app).
+Profile picture upload fails with **"Bucket not found"** until the bucket exists and RLS is set. Do this in the Supabase dashboard (not from the client app). **Create the bucket first (A), then run the SQL (B).**
 
 ---
 
-## A) Create the bucket in Supabase Dashboard
+## A) Create the bucket in Supabase Dashboard (required first)
 
 1. Go to [Supabase Dashboard](https://supabase.com/dashboard) → your project.
 2. In the left sidebar, open **Storage**.

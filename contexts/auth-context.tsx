@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { resetAnalytics } from '../lib/analytics';
+import { isSupabaseConfigured, supabaseUrl } from '../lib/config';
+import { logAuthDiagnostics, logCaughtError } from '../lib/auth-diagnostics';
 
 type AuthContextType = {
   session: Session | null;
@@ -20,38 +22,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    if (!isSupabaseConfigured) {
+      setConfigError('EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing. Set them in EAS secrets.');
       setLoading(false);
-      if (session?.user) {
-        ensureProfileExists(session.user.id).catch((e) => {
-          if (__DEV__) console.warn('[Auth] ensureProfileExists (initial)', e);
+      return;
+    }
+
+    let cancelled = false;
+    supabase.auth.getSession().then(({ data: { session: s }, error }) => {
+      if (cancelled) return;
+      if (__DEV__) {
+        if (error) logCaughtError(error);
+        logAuthDiagnostics({
+          hasSupabaseUrl: !!supabaseUrl,
+          supabaseClientInit: !!supabase?.auth,
+          hasSession: !!s,
+          hasUserId: !!s?.user?.id,
         });
       }
+      setSession(s);
+      setUser(s?.user ?? null);
+      setLoading(false);
+      if (s?.user) {
+        ensureProfileExists(s.user.id).catch((e) => {
+          if (__DEV__) logCaughtError(e);
+        });
+      }
+    }).catch((e) => {
+      if (cancelled) return;
+      if (__DEV__) logCaughtError(e);
+      setLoading(false);
     });
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (cancelled) return;
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-
       if (session?.user) {
         try {
           await ensureProfileExists(session.user.id);
         } catch (e) {
-          if (__DEV__) console.warn('[Auth] ensureProfileExists', e);
+          if (__DEV__) logCaughtError(e);
         }
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Helper function to ensure profile exists (use maybeSingle to avoid throw when no row - .single() crashes on TestFlight)
@@ -261,6 +284,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
     }
   };
+
+  if (configError) throw new Error(configError);
 
   return (
     <AuthContext.Provider value={{ 

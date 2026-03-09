@@ -67,11 +67,12 @@ export const KeyboardScreen = React.forwardRef<ScrollViewType, KeyboardScreenPro
   ];
 
   if (!keyboardAvoiding) {
-    return <View style={containerStyle}>{scrollView}</View>;
+    return <View pointerEvents="box-none" style={containerStyle}>{scrollView}</View>;
   }
 
   return (
     <KeyboardAvoidingView
+      pointerEvents="box-none"
       style={containerStyle}
       behavior={Platform.OS === 'ios' ? 'position' : 'height'}
       keyboardVerticalOffset={effectiveOffset}

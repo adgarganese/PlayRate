@@ -55,6 +55,7 @@ export default function HighlightCommentsScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
 
   useEffect(() => {
     if (highlightId) {
@@ -81,22 +82,23 @@ export default function HighlightCommentsScreen() {
 
     setSending(true);
     const text = inputText.trim();
+    const parentId = replyingToId;
     setInputText('');
+    setReplyingToId(null);
 
     try {
-      const result = await addHighlightComment(highlightId, user.id, text);
+      const result = await addHighlightComment(highlightId, user.id, text, parentId || undefined);
       if (result.success && result.comment) {
         track('highlight_commented', { highlight_id: highlightId });
         setComments(prev => [...prev, result.comment!]);
-        // Scroll to bottom
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 100);
       }
     } catch (err) {
       devError('HighlightComments', 'Send comment error:', err);
-      // Restore input on failure
       setInputText(text);
+      if (parentId) setReplyingToId(parentId);
     } finally {
       setSending(false);
     }
@@ -110,7 +112,12 @@ export default function HighlightCommentsScreen() {
       >
         <ProfilePicture avatarUrl={item.profile_avatar_url} size={36} editable={false} />
       </TouchableOpacity>
-      <View style={styles.commentContent}>
+      <View
+        style={[
+          styles.commentContent,
+          item.parent_id && { marginLeft: Spacing.md, paddingLeft: Spacing.sm, borderLeftWidth: 2, borderLeftColor: colors.border },
+        ]}
+      >
         <View style={styles.commentHeader}>
           <TouchableOpacity onPress={() => router.push(`/athletes/${item.user_id}/profile` as any)}>
             <Text style={[styles.commentUsername, { color: colors.text }]}>
@@ -121,7 +128,19 @@ export default function HighlightCommentsScreen() {
             {formatTimeAgo(item.created_at)}
           </Text>
         </View>
+        {item.parent_username ? (
+          <Text style={[styles.commentReplyTo, { color: colors.textMuted }]}>Replying to @{item.parent_username}</Text>
+        ) : null}
         <Text style={[styles.commentBody, { color: colors.text }]}>{item.body}</Text>
+        {user ? (
+          <TouchableOpacity
+            style={styles.replyButton}
+            onPress={() => setReplyingToId(item.id)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[styles.replyButtonText, { color: colors.primary }]}>Reply</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -180,6 +199,11 @@ export default function HighlightCommentsScreen() {
         >
           {user ? (
             <>
+              {replyingToId ? (
+                <TouchableOpacity onPress={() => setReplyingToId(null)} style={styles.cancelReply}>
+                  <Text style={[styles.cancelReplyText, { color: colors.textMuted }]}>Cancel reply</Text>
+                </TouchableOpacity>
+              ) : null}
               <TextInput
                 style={[
                   styles.input,
@@ -280,6 +304,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  commentReplyTo: { fontSize: 12, marginBottom: 2 },
+  replyButton: { marginTop: 4 },
+  replyButtonText: { fontSize: 12, fontWeight: '600' },
+  cancelReply: { marginBottom: 4 },
+  cancelReplyText: { fontSize: 12 },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

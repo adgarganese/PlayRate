@@ -151,7 +151,7 @@ export async function fetchCourtById(courtId: string) {
     .from('courts')
     .select('id, name, address, lat, lng, created_by, created_at, indoor, hoop_count, court_type, surface_type, has_lights, cost, hours, parking_type, amenities, notes')
     .eq('id', courtId)
-    .single();
+    .maybeSingle();
 
   if (courtError && (courtError.message?.includes('column') || courtError.message?.includes('42703') || courtError.code === '42703')) {
     if (__DEV__) console.log('New court detail columns not found, falling back to basic columns');
@@ -160,7 +160,7 @@ export async function fetchCourtById(courtId: string) {
       .from('courts')
       .select('id, name, address, lat, lng, created_by, created_at')
       .eq('id', courtId)
-      .single();
+      .maybeSingle();
 
     const basicData = basicResult.data;
     courtError = basicResult.error;
@@ -558,6 +558,20 @@ export type CourtPhoto = {
   url?: string;
 };
 
+/** Slot used as the main court profile image; slots 2–4 are additional photos. */
+export const COURT_PHOTO_PRIMARY_SLOT = 1;
+
+/** Returns the primary (main) court photo, or null. Primary = slot 1. */
+export function getPrimaryCourtPhoto(photos: CourtPhoto[]): CourtPhoto | null {
+  const sorted = [...photos].sort((a, b) => a.slot - b.slot);
+  return sorted[0] ?? null;
+}
+
+/** Returns additional court photos (all except primary). */
+export function getAdditionalCourtPhotos(photos: CourtPhoto[]): CourtPhoto[] {
+  return [...photos].sort((a, b) => a.slot - b.slot).filter((p) => p.slot !== COURT_PHOTO_PRIMARY_SLOT);
+}
+
 export async function fetchCourtPhotos(courtId: string): Promise<CourtPhoto[]> {
   if (!UUID_REGEX.test(courtId)) {
     return [];
@@ -598,7 +612,7 @@ export async function uploadCourtPhoto(
 
   const fileExt = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
   const fileName = `${courtId}-${slot}-${Date.now()}.${fileExt}`;
-  const storagePath = `${courtId}/${fileName}`;
+  const storagePath = `${courtId}/${userId}/${fileName}`;
 
   const { error: uploadError } = await supabase.storage
     .from('court-photos')

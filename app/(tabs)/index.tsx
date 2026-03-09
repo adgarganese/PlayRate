@@ -9,7 +9,6 @@ import { supabase } from '@/lib/supabase';
 import { fetchRecommendedRuns, type RecommendedCourtItem } from '@/lib/courts';
 import { loadHighlightsFeed, type FeedHighlight } from '@/lib/highlights';
 import { Screen } from '@/components/ui/Screen';
-import { Header } from '@/components/ui/Header';
 import { Button } from '@/components/ui/Button';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { SectionTitle } from '@/components/SectionTitle';
@@ -163,6 +162,8 @@ export default function HomeScreen() {
   }, [loadingRuns, recommendedRuns.length, hasInitialLoadCompleted]);
 
   // Single-wave initial load: run all three in parallel, then mark initial load done
+  // Safety: if any request hangs, show Home after 12s with whatever data is ready
+  const INITIAL_LOAD_TIMEOUT_MS = 12000;
   useEffect(() => {
     if (!user) {
       setHasInitialLoadCompleted(false);
@@ -177,6 +178,11 @@ export default function HomeScreen() {
     loadRecommendedFriends().then(checkAllDone);
     loadRecommendedRuns().then(checkAllDone);
     loadHighlightsPreview().then(checkAllDone);
+
+    const safetyTimeout = setTimeout(() => {
+      setHasInitialLoadCompleted(true);
+    }, INITIAL_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(safetyTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -206,22 +212,20 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <View style={[styles.pageBackground, { backgroundColor: colors.bg }]}>
+      <View style={[styles.pageBackground, { backgroundColor: colors.bg }]} pointerEvents="box-none">
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Header
-            title="PlayRate"
-            customTitle={
-              <View style={styles.homeLogoTopCenter}>
-                <PlayRatePlaceholder />
-              </View>
-            }
-            showBack={false}
-            rightElement={<NotificationsAndInboxIcons />}
-            style={styles.homeHeader}
-          />
+          <View style={[styles.homeHeaderWrapper, styles.homeHeader]} pointerEvents="box-none">
+            <View style={styles.homeHeaderRow} pointerEvents="box-none">
+              <View style={styles.homeHeaderSpacer} />
+              <NotificationsAndInboxIcons />
+            </View>
+            <View style={styles.homeLogoAbsoluteCenter} pointerEvents="box-none">
+              <PlayRatePlaceholder />
+            </View>
+          </View>
 
         {/* Section 1: Your Snapshot */}
         <View style={styles.section}>
@@ -415,8 +419,26 @@ const styles = StyleSheet.create({
   pageBackground: {
     flex: 1,
   },
-  homeLogoTopCenter: {
-    width: '100%',
+  homeHeaderWrapper: {
+    minHeight: 56,
+    paddingTop: Spacing.sm,
+    position: 'relative',
+  },
+  homeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  homeHeaderSpacer: {
+    flex: 1,
+  },
+  homeLogoAbsoluteCenter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   homeHeader: {

@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, FlatList, Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useAuth } from '@/contexts/auth-context';
@@ -13,6 +12,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { devError } from '@/lib/logging';
+import { useTabBarSafeBottom } from '@/hooks/use-tab-bar-safe-bottom';
 
 const GRID_COLUMNS = 3;
 const GRID_GAP = 2;
@@ -32,8 +32,8 @@ type Highlight = {
 export default function MyHighlightsScreen() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { colors } = useThemeColors();
+  const fabBottom = useTabBarSafeBottom(Spacing.lg);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -246,7 +246,7 @@ export default function MyHighlightsScreen() {
         style={[
           styles.fab,
           {
-            bottom: insets.bottom + Spacing.lg,
+            bottom: fabBottom,
             right: Spacing.lg,
             backgroundColor: colors.primary,
           },

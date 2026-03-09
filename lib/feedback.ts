@@ -93,4 +93,26 @@ export function getReportProblemMailtoUrl(options: {
   return `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${bodyEnc}`;
 }
 
+/**
+ * Privacy Policy URL for Account & Security. Returns null if not configured.
+ * Set EXPO_PUBLIC_PRIVACY_POLICY_URL or extra.privacyPolicyUrl to enable.
+ */
+export function getPrivacyPolicyUrl(): string | null {
+  const url =
+    process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL ||
+    (Constants.expoConfig?.extra?.privacyPolicyUrl as string | undefined);
+  return url && url.trim() ? url : null;
+}
+
+/**
+ * Terms of Service URL for Account & Security. Returns null if not configured.
+ * Set EXPO_PUBLIC_TERMS_URL or extra.termsUrl to enable.
+ */
+export function getTermsUrl(): string | null {
+  const url =
+    process.env.EXPO_PUBLIC_TERMS_URL ||
+    (Constants.expoConfig?.extra?.termsUrl as string | undefined);
+  return url && url.trim() ? url : null;
+}
+
 export { SUPPORT_EMAIL };

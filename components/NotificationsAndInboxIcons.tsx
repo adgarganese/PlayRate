@@ -9,9 +9,9 @@ import { useAuth } from '@/contexts/auth-context';
 import { Spacing, Typography } from '@/constants/theme';
 
 /**
- * Renders bell icon for Home and Profile headers.
- * Bell -> /inbox?tab=notifications
- * Badge count from BadgeContext (unread notifications, fallback to unread DMs).
+ * Renders inbox icon for Home and Profile headers.
+ * Opens Inbox with Messages tab (user can switch to Notifications there).
+ * Badge count from BadgeContext (unread DMs, fallback to unread notifications).
  */
 export function NotificationsAndInboxIcons() {
   const { user } = useAuth();
@@ -25,29 +25,29 @@ export function NotificationsAndInboxIcons() {
     }, [refreshBadges])
   );
 
-  const onNotificationsPress = useCallback(() => {
-    router.push('/inbox?tab=notifications');
+  const onInboxPress = useCallback(() => {
+    router.push('/inbox');
   }, [router]);
 
   if (!user) return null;
 
-  const notifBadgeCount = unreadNotifCount > 0 ? unreadNotifCount : unreadDmCount;
+  const inboxBadgeCount = unreadDmCount > 0 ? unreadDmCount : unreadNotifCount;
 
   return (
     <View style={styles.container} pointerEvents="box-none">
       <Pressable
         style={({ pressed }) => [styles.touchable, pressed && styles.pressed]}
-        onPress={onNotificationsPress}
-        accessibilityLabel={notifBadgeCount > 0 ? `Notifications, ${notifBadgeCount} unread` : 'Notifications'}
+        onPress={onInboxPress}
+        accessibilityLabel={inboxBadgeCount > 0 ? `Messages, ${inboxBadgeCount} unread` : 'Messages'}
         accessibilityRole="button"
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       >
         <View style={styles.iconWrap}>
-          <IconSymbol name="bell.fill" size={24} color={colors.textMuted} />
-          {notifBadgeCount > 0 && (
+          <IconSymbol name="envelope.fill" size={24} color={colors.textMuted} />
+          {inboxBadgeCount > 0 && (
             <View style={[styles.badge, { backgroundColor: colors.primary }]}>
               <Text style={styles.badgeText} numberOfLines={1}>
-                {notifBadgeCount > 99 ? '99+' : notifBadgeCount}
+                {inboxBadgeCount > 99 ? '99+' : inboxBadgeCount}
               </Text>
             </View>
           )}

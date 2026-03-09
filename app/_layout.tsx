@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ThemeProvider } from '@/contexts/theme-context';
 import { BadgeProvider } from '@/contexts/badge-context';
@@ -23,21 +24,6 @@ import {
   POSTHOG_HOST,
 } from '@/lib/analytics';
 import { initSentry, setSentryUser, setSentryRoute, isSentryEnabled, Sentry } from '@/lib/sentry';
-import * as Sentry from '@sentry/react-native';
-
-Sentry.init({
-  dsn: 'https://6e36fe1cd6a87d637f6080a0e87eecc4@o4510972662841344.ingest.us.sentry.io/4510972753149952',
-
-  // Adds more context data to events (IP address, cookies, user, etc.)
-  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
-  sendDefaultPii: true,
-
-  // Enable Logs
-  enableLogs: false,
-
-  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
-  // spotlight: __DEV__,
-});
 
 // Enable Sentry only when EXPO_PUBLIC_SENTRY_DSN is set (e.g. EAS production/preview builds)
 initSentry();
@@ -63,6 +49,31 @@ SplashScreen.preventAutoHideAsync();
 export const unstable_settings = {
   anchor: 'index',
 };
+
+/**
+ * Parses a playrate:// URL and returns the expo-router path to navigate to, or null if not a supported in-app route.
+ * Supports: highlights/<id>, profile/highlights/<id>, courts/<id>, athletes/<userId>, athletes/<userId>/profile, chat/<conversationId>.
+ */
+function getRouteFromPlayrateUrl(url: string): string | null {
+  try {
+    const withoutScheme = url.replace(/^playrate:\/\//i, '').replace(/^\/+/, '');
+    const segments = withoutScheme.split('/').filter(Boolean);
+    if (segments.length === 0) return null;
+    const [first, second, third] = segments;
+    // highlights/<id> or profile/highlights/<id>
+    if (first === 'highlights' && second) return `/highlights/${second}`;
+    if (first === 'profile' && second === 'highlights' && third) return `/highlights/${third}`;
+    // courts/<id>
+    if (first === 'courts' && second) return `/courts/${second}`;
+    // athletes/<userId> or athletes/<userId>/profile
+    if (first === 'athletes' && second) return `/athletes/${second}/profile`;
+    // chat/<conversationId>
+    if (first === 'chat' && second) return `/chat/${second}`;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** Connects the PostHog client from context to lib/analytics so track() etc. work from anywhere. */
 function PostHogBridge({ children }: { children: React.ReactNode }) {
@@ -134,8 +145,8 @@ function RootLayoutNavInner() {
   };
 
   useEffect(() => {
-    // Handle deep links for password reset
-    const handleUrl = (url: string) => {
+    // Handle deep links for password reset and playrate:// in-app routes
+    const handleUrl = (url: string, options: { isInitial?: boolean } = {}) => {
       try {
         const parsed = Linking.parse(url);
         const { path, queryParams, hostname } = parsed;
@@ -164,11 +175,27 @@ function RootLayoutNavInner() {
               params,
             });
           }, 100);
-        } else if (url && (url.includes('playrate://') || hostname?.includes('playrate'))) {
+          return;
+        }
+
+        // In-app navigation for playrate:// URLs (e.g. from notifications or shares)
+        if (url && (url.includes('playrate://') || hostname?.includes('playrate'))) {
+          const target = path ?? url;
           track('notification_opened', {
             notification_type: 'deep_link',
-            deep_link_target: path ?? url,
+            deep_link_target: target,
           });
+          const route = getRouteFromPlayrateUrl(url);
+          if (route) {
+            const isInitial = options.isInitial === true;
+            setTimeout(() => {
+              if (isInitial) {
+                router.replace(route as any);
+              } else {
+                router.push(route as any);
+              }
+            }, 100);
+          }
         }
       } catch (error) {
         if (__DEV__) console.warn('[root:deepLink]', error);
@@ -177,13 +204,13 @@ function RootLayoutNavInner() {
 
     // Listen for deep links when app is running
     const subscription = Linking.addEventListener('url', (event) => {
-      handleUrl(event.url);
+      handleUrl(event.url, { isInitial: false });
     });
 
     // Check for initial URL when app opens from deep link
     Linking.getInitialURL().then((url) => {
       if (url) {
-        handleUrl(url);
+        handleUrl(url, { isInitial: true });
       }
     });
 
@@ -203,7 +230,8 @@ function RootLayoutNavInner() {
           animation: 'default',
         }}
       >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        {/* Keep root-stack gestures off for the tabs shell; they can steal touches from the bottom tab bar in Expo Go. */}
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="sign-up" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="forgot-password" options={{ title: 'Forgot Password', presentation: 'modal' }} />
@@ -251,9 +279,11 @@ function RootLayout() {
   }, [fontsLoaded]);
 
   const content = (
-    <AuthProvider>
-      <RootLayoutNavInner />
-    </AuthProvider>
+    <AppErrorBoundary fallbackMessage="Something went wrong. Try again or restart the app.">
+      <AuthProvider>
+        <RootLayoutNavInner />
+      </AuthProvider>
+    </AppErrorBoundary>
   );
 
   if (!POSTHOG_API_KEY) {

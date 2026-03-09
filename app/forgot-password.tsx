@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, Alert, TouchableOpacity, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
 import { Header } from '@/components/ui/Header';
@@ -10,7 +10,8 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
 
 export default function ForgotPasswordScreen() {
-  const [email, setEmail] = useState('');
+  const params = useLocalSearchParams<{ email?: string }>();
+  const [email, setEmail] = useState(params?.email ?? '');
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function ForgotPasswordScreen() {
     if (Platform.OS === 'web') {
       redirectUrl = 'http://localhost:8081/reset-password';
     } else {
-      redirectUrl = 'athleteapp://reset-password';
+      redirectUrl = 'playrate://reset-password';
     }
     
     const { error } = await supabase.auth.resetPasswordForEmail(email, {

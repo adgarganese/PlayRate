@@ -5,6 +5,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { Image } from 'expo-image';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
+import { resolveMediaUrlForPlayback } from '@/lib/storage-media-url';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
@@ -50,6 +51,7 @@ export default function HighlightDetailScreen() {
   const { user } = useAuth();
   const { colors } = useThemeColors();
   const [highlight, setHighlight] = useState<Highlight | null>(null);
+  const [playbackUri, setPlaybackUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
@@ -67,6 +69,7 @@ export default function HighlightDetailScreen() {
 
       if (error || !h) {
         setHighlight(null);
+        setPlaybackUri(null);
         setLoading(false);
         return;
       }
@@ -102,9 +105,16 @@ export default function HighlightDetailScreen() {
       });
       setLikeCount(count || 0);
       setIsLiked(userLiked);
+      try {
+        const resolved = await resolveMediaUrlForPlayback(h.media_url);
+        setPlaybackUri(resolved);
+      } catch {
+        setPlaybackUri(h.media_url);
+      }
     } catch (err) {
       if (__DEV__) console.warn('[profile-highlight] load', err);
       setHighlight(null);
+      setPlaybackUri(null);
     } finally {
       setLoading(false);
     }
@@ -209,9 +219,9 @@ export default function HighlightDetailScreen() {
 
         <View style={[styles.mediaContainer, { width: screenWidth - Spacing.lg * 2, aspectRatio: 1 }]}>
           {highlight.media_type === 'video' ? (
-            <HighlightVideo uri={highlight.media_url} thumbnailUri={highlight.thumbnail_url || highlight.media_url} />
+            <HighlightVideo uri={playbackUri || highlight.media_url} thumbnailUri={highlight.thumbnail_url || highlight.media_url} />
           ) : (
-            <Image source={{ uri: highlight.media_url }} style={styles.image} contentFit="contain" />
+            <Image source={{ uri: playbackUri || highlight.media_url }} style={styles.image} contentFit="contain" />
           )}
         </View>
 

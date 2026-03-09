@@ -16,6 +16,7 @@ import { useResendTimer } from '@/hooks/use-resend-timer';
 import { Spacing, Typography } from '@/constants/theme';
 import { FEATURE_PHONE_AUTH } from '@/constants/features';
 import { track } from '@/lib/analytics';
+import { logCaughtError } from '@/lib/auth-diagnostics';
 
 type AuthMethod = 'email' | 'phone';
 
@@ -48,6 +49,7 @@ export default function SignInScreen() {
       setLoading(false);
 
       if (error) {
+        if (__DEV__) logCaughtError(error);
         let friendlyMessage = error.message;
         if (error.message.includes('Invalid login credentials')) {
           friendlyMessage = 'Email or password is incorrect. Please try again.';
@@ -61,7 +63,7 @@ export default function SignInScreen() {
       }
     } catch (err) {
       setLoading(false);
-      if (__DEV__) console.warn('[SignIn] signIn threw', err);
+      if (__DEV__) logCaughtError(err);
       Alert.alert('Sign In', err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     }
   };
