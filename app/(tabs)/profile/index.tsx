@@ -1,3 +1,7 @@
+/**
+ * REINTRODUCTION STEP 4: Real Profile screen restored. Athletes remains the only placeholder.
+ * Stable baseline: Home + Courts + Highlights + Profile real; minimal tab shell; no haptics.
+ */
 import { useEffect, useState } from 'react';
 import { View, Text, Alert, StyleSheet, TextInput as RNTextInput, Pressable, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -7,6 +11,8 @@ import { useFollow } from '@/hooks/useFollow';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
+import { SectionAccent } from '@/components/ui/SectionAccent';
+import { ActivityHistoryCard } from '@/components/ActivityHistoryCard';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/TextInput';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
@@ -17,7 +23,11 @@ import { NotificationsAndInboxIcons } from '@/components/NotificationsAndInboxIc
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
+import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
 import { getPlayStylesForSport, isSportEnabled } from '@/constants/sport-definitions';
+import { logger } from '@/lib/logger';
+import { UI_GENERIC } from '@/lib/user-facing-errors';
+import { ProfileSkeleton } from '@/components/skeletons/ProfileSkeleton';
 
 type Profile = {
   user_id: string;
@@ -27,6 +37,8 @@ type Profile = {
   play_style: string | null;
   avatar_url: string | null;
   created_at: string;
+  active_sport_id?: string | null;
+  cosign_count?: number | null;
 };
 
 const PLAY_STYLE_CUSTOM = 'Custom' as const;
@@ -63,8 +75,8 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
-      setTimeout(() => router.replace('/sign-in'), 100);
-      return;
+      const t = setTimeout(() => router.replace('/sign-in'), 100);
+      return () => clearTimeout(t);
     }
     loadProfile();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -76,7 +88,7 @@ export default function ProfileScreen() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('user_id, name, username, bio, play_style, avatar_url, created_at')
+        .select('user_id, name, username, bio, play_style, avatar_url, created_at, active_sport_id, cosign_count')
         .eq('user_id', user.id)
         .maybeSingle();
 
@@ -103,22 +115,21 @@ export default function ProfileScreen() {
       setProfile(data);
       setAvatarUrl(data.avatar_url || null);
 
-      const { data: currentProfile } = await supabase.from('profiles').select('active_sport_id').eq('user_id', user.id).maybeSingle();
       let sportName: string | null = null;
-      if (currentProfile?.active_sport_id) {
-        const { data: sportData } = await supabase.from('sports').select('name').eq('id', currentProfile.active_sport_id).maybeSingle();
+      if (data.active_sport_id) {
+        const { data: sportData } = await supabase.from('sports').select('name').eq('id', data.active_sport_id).maybeSingle();
         sportName = sportData?.name || null;
         if (sportName && !isSportEnabled(sportName)) {
           sportName = 'Basketball';
         }
-        setActiveSportId(currentProfile.active_sport_id);
+        setActiveSportId(data.active_sport_id);
         setActiveSportName(sportName);
       }
 
       let playStyle: string | null = null;
-      if (currentProfile?.active_sport_id) {
+      if (data.active_sport_id) {
         try {
-          const { data: sp } = await supabase.from('sport_profiles').select('play_style').eq('user_id', user.id).eq('sport_id', currentProfile.active_sport_id).maybeSingle();
+          const { data: sp } = await supabase.from('sport_profiles').select('play_style').eq('user_id', user.id).eq('sport_id', data.active_sport_id).maybeSingle();
           playStyle = sp?.play_style || null;
         } catch (error) {
           if (__DEV__) console.warn('[profile-tab:load] sport_profiles', error);
@@ -136,26 +147,37 @@ export default function ProfileScreen() {
       });
       setCustomPlayStyle(opts.includes(ps as never) ? '' : ps);
 
-      // Stats for credibility card (non-blocking)
       try {
-        const { data: profileCosign } = await supabase.from('profiles').select('cosign_count').eq('user_id', user.id).maybeSingle();
-        if (profileCosign?.cosign_count != null) {
-          setCosignCount(profileCosign.cosign_count);
-        } else {
-          const { count: c } = await supabase.from('cosigns').select('*', { count: 'exact', head: true }).eq('to_user_id', user.id);
-          setCosignCount(c ?? 0);
-        }
-        const { count: checkIns } = await supabase.from('check_ins').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
-        setCheckInsCount(checkIns ?? 0);
-        const { count: ratings } = await supabase.from('self_ratings').select('*', { count: 'exact', head: true }).eq('profile_id', user.id);
-        setRatingsCount(ratings ?? 0);
-        const { count: highlights } = await supabase.from('highlights').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
-        setHighlightsCount(highlights ?? 0);
+        await Promise.all([
+          (async () => {
+            if (data.cosign_count != null) {
+              setCosignCount(data.cosign_count);
+              return;
+            }
+            const { count: c } = await supabase.from('cosigns').select('*', { count: 'exact', head: true }).eq('to_user_id', user.id);
+            setCosignCount(c ?? 0);
+          })(),
+          (async () => {
+            const { count: checkIns } = await supabase.from('check_ins').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+            setCheckInsCount(checkIns ?? 0);
+          })(),
+          (async () => {
+            const { count: ratings } = await supabase.from('self_ratings').select('*', { count: 'exact', head: true }).eq('profile_id', user.id);
+            setRatingsCount(ratings ?? 0);
+          })(),
+          (async () => {
+            const { count: highlights } = await supabase.from('highlights').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+            setHighlightsCount(highlights ?? 0);
+          })(),
+        ]);
       } catch (error) {
-        if (__DEV__) console.warn('[profile-tab:load] highlightsCount', error);
+        if (__DEV__) console.warn('[profile-tab:load] stats counts', error);
       }
     } catch (err: unknown) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Please try again.');
+      if (__DEV__) {
+        logger.warn('[profile-tab] load failed', { err });
+      }
+      Alert.alert('Error', UI_GENERIC);
     } finally {
       setLoading(false);
     }
@@ -163,9 +185,32 @@ export default function ProfileScreen() {
 
   const handleSave = async () => {
     if (!user || !profile) return;
-    const playStyleValue = formData.playStyle === PLAY_STYLE_CUSTOM ? (customPlayStyle.trim() || null) : (formData.playStyle || null);
+    const nameClean = formData.name
+      ? sanitizeText(formData.name, SANITIZE_LIMITS.profileName)
+      : null;
+    const bioClean = formData.bio
+      ? sanitizeText(formData.bio, SANITIZE_LIMITS.profileBio, { multiline: true })
+      : null;
+    if (
+      (nameClean && isOffensiveContent(nameClean)) ||
+      (bioClean && isOffensiveContent(bioClean))
+    ) {
+      Alert.alert('Unable to save', 'Please adjust your name or bio and try again.');
+      return;
+    }
+    const playStyleValue =
+      formData.playStyle === PLAY_STYLE_CUSTOM
+        ? sanitizeText(customPlayStyle, SANITIZE_LIMITS.playStyleCustom) || null
+        : formData.playStyle || null;
+    if (playStyleValue && isOffensiveContent(playStyleValue)) {
+      Alert.alert('Unable to save', 'Please adjust play style text and try again.');
+      return;
+    }
     setSaving(true);
-    const { error } = await supabase.from('profiles').update({ name: formData.name || null, bio: formData.bio || null }).eq('user_id', user.id);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ name: nameClean, bio: bioClean })
+      .eq('user_id', user.id);
     if (error) {
       setSaving(false);
       Alert.alert('Error', 'Unable to save.');
@@ -182,8 +227,33 @@ export default function ProfileScreen() {
     await loadProfile();
   };
 
-  if (authLoading || loading) return <LoadingScreen message="Loading profile..." />;
-  if (!user || !profile) return <ErrorScreen message="Profile not found" onRetry={loadProfile} retryLabel="Retry" />;
+  if (authLoading) return <LoadingScreen message="Loading profile..." />;
+  if (!user) return <LoadingScreen message="Loading profile..." />;
+  if (loading) {
+    return (
+      <KeyboardScreen contentContainerStyle={styles.scrollContent}>
+        <Header
+          title="Profile"
+          rightElement={
+            <View style={styles.headerRight}>
+              <NotificationsAndInboxIcons />
+              <TouchableOpacity
+                onPress={() => router.push('/profile/account' as any)}
+                accessibilityLabel="Account & Security"
+                accessibilityRole="button"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={[styles.headerIconButton, { zIndex: 11, marginLeft: Spacing.sm }]}
+              >
+                <IconSymbol name="gearshape.fill" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+          }
+        />
+        <ProfileSkeleton />
+      </KeyboardScreen>
+    );
+  }
+  if (!profile) return <ErrorScreen message="Profile not found" onRetry={loadProfile} retryLabel="Retry" />;
 
   const subtitle = profile.bio?.trim() || profile.play_style || (activeSportName ? `${activeSportName} player` : null) || 'Add a short bio';
 
@@ -298,10 +368,10 @@ export default function ProfileScreen() {
         {editing ? (
           <>
             <View style={styles.section}>
-              <TextInput label="Name" placeholder="Enter your name" value={formData.name} onChangeText={(t) => setFormData({ ...formData, name: t })} editable={!saving} />
+              <TextInput label="Name" placeholder="Enter your name" value={formData.name} onChangeText={(t) => setFormData({ ...formData, name: t })} editable={!saving} maxLength={SANITIZE_LIMITS.profileName} />
             </View>
             <View style={styles.section}>
-              <TextInput label="Bio" placeholder="Tell us about yourself" value={formData.bio} onChangeText={(t) => setFormData({ ...formData, bio: t })} multiline numberOfLines={4} editable={!saving} style={styles.bioInput} />
+              <TextInput label="Bio" placeholder="Tell us about yourself" value={formData.bio} onChangeText={(t) => setFormData({ ...formData, bio: t })} multiline numberOfLines={4} editable={!saving} style={styles.bioInput} maxLength={SANITIZE_LIMITS.profileBio} />
             </View>
             <View style={styles.section}>
               <Text style={[styles.label, { color: colors.textMuted }]}>Play Style</Text>
@@ -313,8 +383,8 @@ export default function ProfileScreen() {
               </View>
               {formData.playStyle === PLAY_STYLE_CUSTOM && (
                 <View style={styles.customPlayStyleContainer}>
-                  <RNTextInput style={[styles.customPlayStyleInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]} placeholder="Custom play style (max 24)" placeholderTextColor={colors.textMuted} value={customPlayStyle} onChangeText={(t) => t.length <= 24 && setCustomPlayStyle(t)} editable={!saving} maxLength={24} />
-                  <Text style={[styles.charCount, { color: colors.textMuted }]}>{customPlayStyle.length}/24</Text>
+                  <RNTextInput style={[styles.customPlayStyleInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]} placeholder={`Custom play style (max ${SANITIZE_LIMITS.playStyleCustom})`} placeholderTextColor={colors.textMuted} value={customPlayStyle} onChangeText={(t) => t.length <= SANITIZE_LIMITS.playStyleCustom && setCustomPlayStyle(t)} editable={!saving} maxLength={SANITIZE_LIMITS.playStyleCustom} />
+                  <Text style={[styles.charCount, { color: colors.textMuted }]}>{customPlayStyle.length}/{SANITIZE_LIMITS.playStyleCustom}</Text>
                 </View>
               )}
             </View>
@@ -326,6 +396,7 @@ export default function ProfileScreen() {
           </>
         ) : (
           <>
+            <SectionAccent tone="pink" />
             <Text style={[styles.cardTitle, { color: colors.textMuted }]}>About</Text>
             {(profile.bio || profile.play_style) ? (
               <View style={styles.aboutBody}>
@@ -341,6 +412,7 @@ export default function ProfileScreen() {
 
       {/* Stats / Credibility card */}
       <Card style={styles.contentCard}>
+        <SectionAccent tone="cyan" />
         <Text style={[styles.cardTitle, { color: colors.textMuted }]}>Stats</Text>
         <View style={styles.credibilityRow}>
           <View style={styles.credibilityItem}>
@@ -358,6 +430,11 @@ export default function ProfileScreen() {
             <Text style={[styles.credibilityLabel, { color: colors.textMuted }]}>Ratings</Text>
           </View>
         </View>
+      </Card>
+
+      <Card style={styles.contentCard}>
+        <SectionAccent tone="pink" />
+        <ActivityHistoryCard userId={user.id} />
       </Card>
     </KeyboardScreen>
   );
@@ -380,8 +457,15 @@ const styles = StyleSheet.create({
   statLabel: { ...Typography.mutedSmall, marginTop: 2 },
   statDivider: { width: 1, height: 28 },
   pressed: { opacity: 0.6 },
-  pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginBottom: Spacing.lg },
-  pill: { flex: 1, minWidth: 100 },
+  pillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.lg,
+    alignItems: 'stretch',
+  },
+  pill: { flex: 1, minWidth: 0 },
   contentCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.lg },
   cardTitle: { ...Typography.mutedSmall, marginBottom: Spacing.md, textTransform: 'uppercase', letterSpacing: 0.5 },
   section: { marginBottom: Spacing.lg },

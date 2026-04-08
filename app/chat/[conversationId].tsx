@@ -32,12 +32,14 @@ import {
   type MessageRow,
 } from '@/lib/dms';
 import { track } from '@/lib/analytics';
+import { hapticMedium } from '@/lib/haptics';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { HighlightPreviewCard } from '@/components/HighlightPreviewCard';
 import { CourtPreviewCard } from '@/components/CourtPreviewCard';
-import { devError } from '@/lib/logging';
+import { logger } from '@/lib/logger';
+import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
 
 function formatMessageTime(iso: string): string {
   const d = new Date(iso);
@@ -148,7 +150,7 @@ export default function ChatScreen() {
       const list = await getMessages(id);
       setMessages(list);
     } catch (e) {
-      devError('Chat', 'Load messages:', e);
+      logger.error('DM chat: load messages failed', { err: e, screen: 'chat', conversationId: id });
       setMessages([]);
     } finally {
       setLoading(false);
@@ -191,8 +193,8 @@ export default function ChatScreen() {
   }, [id]);
 
   const handleSend = useCallback(async () => {
-    const body = input.trim();
-    if (!body || !user?.id || !id || sending) return;
+    const body = sanitizeText(input, SANITIZE_LIMITS.dmBody);
+    if (!body || isOffensiveContent(body) || !user?.id || !id || sending) return;
     setInput('');
     const tempId = `temp-${Date.now()}`;
     const optimistic: MessageRow = {
@@ -206,6 +208,7 @@ export default function ChatScreen() {
     setSending(true);
     try {
       const sent = await sendMessage(id, user.id, body);
+      hapticMedium();
       track('dm_sent', { thread_id: id });
       setMessages((prev) => {
         const replaced = prev.map((m) => (m.id === tempId ? sent : m));
@@ -214,7 +217,7 @@ export default function ChatScreen() {
     } catch (e) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setInput(body);
-      if (__DEV__) console.error('Send message:', e);
+      logger.error('DM chat: send message failed', { err: e, screen: 'chat', conversationId: id });
     } finally {
       setSending(false);
     }
@@ -296,7 +299,7 @@ export default function ChatScreen() {
             value={input}
             onChangeText={setInput}
             multiline
-            maxLength={2000}
+            maxLength={SANITIZE_LIMITS.dmBody}
             editable={!sending}
           />
           <TouchableOpacity

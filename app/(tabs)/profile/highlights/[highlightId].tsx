@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, Dimensions, Share } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, Dimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Video, ResizeMode } from 'expo-av';
 import { Image } from 'expo-image';
@@ -13,6 +13,7 @@ import { ProfilePicture } from '@/components/ProfilePicture';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
+import { hapticLight } from '@/lib/haptics';
 
 /** In-app video playback (no external browser). How to verify on iPhone TestFlight: open a video highlight → plays inside the app. */
 function HighlightVideo({ uri, thumbnailUri }: { uri: string; thumbnailUri: string | null }) {
@@ -127,6 +128,7 @@ export default function HighlightDetailScreen() {
 
   const toggleLike = async () => {
     if (!user || !highlightId || togglingLike) return;
+    hapticLight();
 
     const wasLiked = isLiked;
     setIsLiked(!wasLiked);
@@ -156,27 +158,6 @@ export default function HighlightDetailScreen() {
   };
 
   const screenWidth = Dimensions.get('window').width;
-
-  const handleShare = async () => {
-    if (!highlight) return;
-    try {
-      await Share.share({
-        title: 'Highlight',
-        message: `Check out this highlight. playrate://profile/highlights/${highlight.id}`,
-      });
-    } catch (error) {
-      if (__DEV__) console.warn('[profile-highlight:share]', error);
-    }
-  };
-
-  const handleDm = () => {
-    if (!highlightId) return;
-    if (!user) {
-      Alert.alert('Sign In Required', 'Sign in to send highlights via DM.');
-      return;
-    }
-    router.push({ pathname: '/highlights/send-dm', params: { highlightId } } as any);
-  };
 
   if (loading) {
     return (
@@ -231,7 +212,7 @@ export default function HighlightDetailScreen() {
               <IconSymbol
                 name={isLiked ? 'star.fill' : 'star'}
                 size={24}
-                color={isLiked ? colors.primary : colors.textMuted}
+                color={isLiked ? colors.accentPink : colors.textMuted}
               />
             </TouchableOpacity>
           )}

@@ -1,14 +1,18 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Platform, Alert, Pressable, Modal, ScrollView, TouchableOpacity, useWindowDimensions, LayoutAnimation, Share, type ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, Platform, Alert, Pressable, Modal, ScrollView, TouchableOpacity, useWindowDimensions, LayoutAnimation, Share, TextInput, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
+import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { 
   fetchCourtById, 
   checkFollowingCourt, 
-  checkInCourt, 
+  checkInCourt,
+  COURT_CHECK_IN_MAX_DISTANCE_METERS,
+  courtHasValidCheckInCoordinates,
+  haversineDistanceMeters,
   getUserCheckIn, 
   getTodayCheckInCount, 
   getCourtLeaderboard,
@@ -16,14 +20,18 @@ import {
   submitCourtRating,
   fetchCourtPhotos,
   getPrimaryCourtPhoto,
+  submitCourtEditSuggestion,
   type Court,
   type LeaderboardEntry,
   type CourtRatingInfo,
   type CourtPhoto
 } from '@/lib/courts';
+import { fetchIsStaff, isCourtCreatedByUser } from '@/lib/court-permissions';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
+import { GradientCard } from '@/components/ui/GradientCard';
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/Button';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { ErrorScreen } from '@/components/ui/ErrorScreen';
@@ -35,13 +43,24 @@ import { CourtPhotoCarousel } from '@/components/CourtPhotoCarousel';
 import { useThemeColors } from '@/contexts/theme-context';
 import { GOLD, Spacing, Typography, Radius } from '@/constants/theme';
 import { BETA_HIDE_LEADERBOARD } from '@/constants/features';
-import { playSubmitBuzz } from '@/lib/haptics';
+import { hapticLight, hapticMedium, playSubmitBuzz } from '@/lib/haptics';
 import { track } from '@/lib/analytics';
+import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
+import { logger } from '@/lib/logger';
+import {
+  UI_CHECK_IN_FAILED,
+  UI_COURT_LOAD_FAILED,
+  UI_FOLLOW_FAILED,
+  UI_RATING_SAVE_FAILED,
+  UI_SUGGESTION_FAILED,
+} from '@/lib/user-facing-errors';
 
 const SECTION_GAP = Spacing.lg;
 
 export default function CourtDetailScreen() {
-  const { courtId } = useLocalSearchParams<{ courtId: string }>();
+  const rawCourtId = useLocalSearchParams<{ courtId?: string | string[] }>().courtId;
+  const courtId =
+    rawCourtId == null ? '' : Array.isArray(rawCourtId) ? rawCourtId[0] ?? '' : rawCourtId;
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
@@ -80,8 +99,41 @@ export default function CourtDetailScreen() {
   const [showPhotosModal, setShowPhotosModal] = useState(false);
   // Rating modal (opened from main card rating row)
   const [showRatingModal, setShowRatingModal] = useState(false);
-  
+
+  // Creator / staff: direct edit entry; others: suggest modal (RLS enforces on server).
+  const [isStaff, setIsStaff] = useState(false);
+  const [staffCheckDone, setStaffCheckDone] = useState(false);
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [suggestBody, setSuggestBody] = useState('');
+  const [submittingSuggest, setSubmittingSuggest] = useState(false);
+
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.id) {
+        setIsStaff(false);
+        setStaffCheckDone(true);
+        return;
+      }
+      setStaffCheckDone(false);
+      const staff = await fetchIsStaff(user.id);
+      if (!cancelled) {
+        setIsStaff(staff);
+        setStaffCheckDone(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const isCourtCreator = isCourtCreatedByUser(court, user?.id);
+  const canDirectEditCourt =
+    !!user && !!court && (isCourtCreator || (staffCheckDone && isStaff));
+  const showSuggestEdit =
+    !!user && !!court && staffCheckDone && !canDirectEditCourt;
 
   useEffect(() => {
     if (courtId) {
@@ -120,7 +172,10 @@ export default function CourtDetailScreen() {
       const props: Record<string, unknown> = { court_id: courtId, court_name: courtData.name };
       track('court_opened', props);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load court');
+      if (__DEV__) {
+        logger.warn('[court-detail] loadCourt failed', { err });
+      }
+      setError(UI_COURT_LOAD_FAILED);
     } finally {
       setLoading(false);
     }
@@ -146,6 +201,7 @@ export default function CourtDetailScreen() {
 
     if (!courtId) return;
 
+    hapticLight();
     setTogglingFollow(true);
 
     const wasFollowing = isFollowing;
@@ -185,7 +241,10 @@ export default function CourtDetailScreen() {
       }
     } catch (err) {
       setIsFollowing(wasFollowing);
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update follow status.');
+      if (__DEV__) {
+        logger.warn('[court-detail] toggle follow failed', { err });
+      }
+      Alert.alert('Error', UI_FOLLOW_FAILED);
     } finally {
       setTogglingFollow(false);
     }
@@ -400,7 +459,10 @@ export default function CourtDetailScreen() {
     } catch (err) {
       // Revert optimistic update on error
       await loadRatingInfo();
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save rating. Please try again.');
+      if (__DEV__) {
+        logger.warn('[court-detail] save rating failed', { err });
+      }
+      Alert.alert('Error', UI_RATING_SAVE_FAILED);
     } finally {
       setSubmittingRating(false);
     }
@@ -434,34 +496,121 @@ export default function CourtDetailScreen() {
       return;
     }
 
-    if (!courtId) return;
+    if (!courtId || !court) return;
+
+    if (!courtHasValidCheckInCoordinates(court)) {
+      Alert.alert(
+        "Can't check in",
+        "This court doesn't have a valid map location yet. Check-in needs coordinates on the court.",
+      );
+      return;
+    }
 
     setCheckingIn(true);
 
     try {
+      const servicesOn = await Location.hasServicesEnabledAsync();
+      if (!servicesOn) {
+        Alert.alert(
+          'Location off',
+          "Turn on Location Services to check in. We need your position to confirm you're at the court.",
+        );
+        return;
+      }
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert(
+          'Location required',
+          "Check-in needs access to your location so we can confirm you're at this court. You can enable it in Settings.",
+        );
+        return;
+      }
+
+      let position: Location.LocationObject;
+      try {
+        position = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+      } catch {
+        Alert.alert(
+          'Location unavailable',
+          "We couldn't read your current location. Try again outdoors or check that location is enabled for this app.",
+        );
+        return;
+      }
+
+      const { latitude: userLat, longitude: userLng } = position.coords;
+      if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) {
+        Alert.alert('Location unavailable', 'Your location looks invalid. Please try again.');
+        return;
+      }
+
+      const distanceM = haversineDistanceMeters(userLat, userLng, court.lat, court.lng);
+      if (distanceM > COURT_CHECK_IN_MAX_DISTANCE_METERS) {
+        Alert.alert(
+          'Too far away',
+          `You're about ${Math.round(distanceM)}m from this court. Move within ${COURT_CHECK_IN_MAX_DISTANCE_METERS}m to check in.`,
+        );
+        return;
+      }
+
       const result = await checkInCourt(courtId);
-      
+
       if (result.success) {
-        track('check_in_completed', { run_id: courtId });
-        // Optimistic update
+        track('check_in_completed', { court_id: courtId });
         setUserCheckIn(new Date().toISOString());
         setTodayCheckInCount(prev => prev + 1);
-        
-        // Reload check-in status and leaderboard to ensure consistency
+
         await Promise.all([
           loadCheckInStatus(),
           loadTodayCheckInCount(),
           loadLeaderboard(),
         ]);
-        
+
+        hapticMedium();
         Alert.alert('Success', result.message || 'Checked in!');
       } else {
-        Alert.alert('Check-In', result.message || 'Unable to check in.');
+        Alert.alert('Check-In', 'Unable to check in. Please try again.');
       }
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to check in.');
+      if (__DEV__) {
+        logger.warn('[court-detail] check-in failed', { err });
+      }
+      Alert.alert('Error', UI_CHECK_IN_FAILED);
     } finally {
       setCheckingIn(false);
+    }
+  };
+
+  const handleSubmitCourtSuggestion = async () => {
+    if (!user || !courtId) return;
+    const message = sanitizeText(suggestBody, SANITIZE_LIMITS.courtEditSuggestion, { multiline: true });
+    if (!message) {
+      Alert.alert('Add details', 'Please describe your suggested change.');
+      return;
+    }
+    if (isOffensiveContent(message)) {
+      Alert.alert('Unable to submit', 'Please adjust your suggestion and try again.');
+      return;
+    }
+    setSubmittingSuggest(true);
+    try {
+      await submitCourtEditSuggestion(courtId, user.id, {
+        message,
+        court_name_snapshot: court?.name ?? null,
+      });
+      track('court_edit_suggested', { court_id: courtId });
+      setShowSuggestModal(false);
+      setSuggestBody('');
+      Alert.alert('Thanks', 'Your suggestion was submitted for review.');
+    } catch (err) {
+      if (__DEV__) {
+        logger.warn('[court-detail] submit suggestion failed', { err });
+      }
+      Alert.alert('Error', UI_SUGGESTION_FAILED);
+    } finally {
+      setSubmittingSuggest(false);
     }
   };
 
@@ -527,14 +676,11 @@ export default function CourtDetailScreen() {
         <Header title={court.name} />
         
         {/* A) Enhanced Header Section */}
-        <Pressable
+        <AnimatedPressable
           onPress={handleToggleCard}
-          style={({ pressed }) => [
-            styles.cardPressable,
-            pressed && styles.cardPressablePressed,
-          ]}
+          style={styles.cardPressable}
         >
-          <Card style={styles.headerCard}>
+          <GradientCard variant="subtle" style={styles.headerCard}>
             {/* Court thumbnail + Favorite star - Top Left */}
             <View style={styles.cardThumbnailColumn}>
               <Pressable
@@ -646,12 +792,16 @@ export default function CourtDetailScreen() {
                   label="Directions"
                   onPress={handleDirections}
                   style={styles.actionGridItem}
+                  showChevron={false}
+                  iconSize={22}
                 />
                 <ProfileNavPill
                   icon="square.and.arrow.up"
                   label="Share"
                   onPress={handleShare}
                   style={styles.actionGridItem}
+                  showChevron={false}
+                  iconSize={22}
                 />
                 <Pressable
                   onPress={() => {
@@ -666,7 +816,7 @@ export default function CourtDetailScreen() {
                   accessibilityRole="button"
                   style={[styles.actionGridItem, styles.dmIconButton, { borderColor: colors.border }]}
                 >
-                  <IconSymbol name="paperplane.fill" size={16} color={colors.textMuted} />
+                  <IconSymbol name="paperplane.fill" size={22} color={colors.textMuted} />
                 </Pressable>
                 {user && !userCheckIn && (
                   <ProfileNavPill
@@ -676,17 +826,43 @@ export default function CourtDetailScreen() {
                     loading={checkingIn}
                     disabled={checkingIn}
                     style={styles.actionGridItem}
+                    accent="checkIn"
+                    showChevron={false}
+                    iconSize={22}
                   />
                 )}
                 {user && userCheckIn && (
                   <View style={[styles.actionGridItem, styles.checkedInIndicator, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                    <IconSymbol name="checkmark.circle.fill" size={16} color={GOLD} />
+                    <IconSymbol name="checkmark.circle.fill" size={22} color={colors.accentOrange} />
                     <Text style={[styles.checkedInText, { color: colors.text }]} numberOfLines={1}>
                       Checked in · {formatCheckInTime(userCheckIn)}
                     </Text>
                   </View>
                 )}
               </View>
+
+              {(canDirectEditCourt || showSuggestEdit) && (
+                <View style={styles.editSuggestRow}>
+                  {canDirectEditCourt && (
+                    <ProfileNavPill
+                      icon="pencil"
+                      label="Edit court"
+                      onPress={() => router.push(`/courts/edit/${courtId}` as any)}
+                      style={styles.editSuggestPill}
+                    />
+                  )}
+                  {showSuggestEdit && (
+                    <ProfileNavPill
+                      icon="envelope.fill"
+                      label="Suggest an edit"
+                      onPress={() => setShowSuggestModal(true)}
+                      style={styles.editSuggestPill}
+                      showChevron={false}
+                      iconSize={22}
+                    />
+                  )}
+                </View>
+              )}
 
               {/* Expand/Collapse for More Details */}
               <Pressable 
@@ -777,8 +953,8 @@ export default function CourtDetailScreen() {
                 </View>
               </View>
             )}
-          </Card>
-        </Pressable>
+          </GradientCard>
+        </AnimatedPressable>
 
         {/* Live Chat Hero Section (first under main card) */}
         <View style={StyleSheet.flatten([styles.sectionCard, styles.chatHeroSection, { marginBottom: SECTION_GAP }]) as ViewStyle}>
@@ -1032,6 +1208,55 @@ export default function CourtDetailScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={showSuggestModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !submittingSuggest && setShowSuggestModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Card style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <AppText variant="h2" color="text">Suggest an edit</AppText>
+              <TouchableOpacity
+                onPress={() => !submittingSuggest && setShowSuggestModal(false)}
+                disabled={submittingSuggest}
+              >
+                <IconSymbol name="xmark.circle.fill" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <AppText variant="mutedSmall" color="textMuted" style={styles.suggestModalHint}>
+              Describe what should change (name, hoops, lights, surface, hours, etc.). Staff will review.
+            </AppText>
+            <TextInput
+              value={suggestBody}
+              onChangeText={setSuggestBody}
+              placeholder="Your suggestion..."
+              placeholderTextColor={colors.textMuted}
+              multiline
+              maxLength={SANITIZE_LIMITS.courtEditSuggestion}
+              editable={!submittingSuggest}
+              style={[
+                styles.suggestModalInput,
+                {
+                  color: colors.text,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceAlt,
+                },
+              ]}
+            />
+            <Button
+              title="Submit"
+              variant="primary"
+              onPress={handleSubmitCourtSuggestion}
+              loading={submittingSuggest}
+              disabled={submittingSuggest}
+              style={styles.suggestModalSubmit}
+            />
+          </Card>
+        </View>
+      </Modal>
+
     </KeyboardScreen>
   );
 }
@@ -1062,9 +1287,6 @@ const styles = StyleSheet.create({
   },
   cardPressable: {
     marginBottom: Spacing.xl,
-  },
-  cardPressablePressed: {
-    opacity: 0.7,
   },
   headerCard: {
     marginBottom: 0,
@@ -1183,28 +1405,29 @@ const styles = StyleSheet.create({
   },
   actionsGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: Spacing.sm,
     marginBottom: Spacing.sm,
+    alignItems: 'stretch',
   },
   actionGridItem: {
     flex: 1,
-    minWidth: '46%',
+    minWidth: 0,
   },
   dmIconButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.sm,
     borderRadius: 999,
     borderWidth: 1,
-    minWidth: 'auto',
-    flex: 0,
+    minWidth: 0,
+    flex: 1,
   },
   checkedInIndicator: {
     flex: 1,
-    minWidth: '46%',
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1217,6 +1440,31 @@ const styles = StyleSheet.create({
   checkedInText: {
     ...Typography.mutedSmall,
     flex: 1,
+  },
+  editSuggestRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  editSuggestPill: {
+    flex: 1,
+    minWidth: 0,
+  },
+  suggestModalHint: {
+    marginBottom: Spacing.md,
+  },
+  suggestModalInput: {
+    minHeight: 120,
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    textAlignVertical: 'top',
+    marginBottom: Spacing.md,
+    ...Typography.body,
+  },
+  suggestModalSubmit: {
+    marginTop: Spacing.xs,
   },
   expandToggle: {
     flexDirection: 'row',

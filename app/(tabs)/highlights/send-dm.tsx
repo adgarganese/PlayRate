@@ -27,6 +27,7 @@ import {
   type MessageableUser,
 } from '@/lib/dms';
 import { getHighlightPreview, type HighlightPreview } from '@/lib/highlights';
+import { hapticMedium } from '@/lib/haptics';
 
 export default function SendHighlightDmScreen() {
   const { highlightId } = useLocalSearchParams<{ highlightId: string }>();
@@ -68,7 +69,7 @@ export default function SendHighlightDmScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [user, id]);
+  }, [user, id, router]);
 
   const filtered = query.trim()
     ? users.filter(
@@ -84,6 +85,7 @@ export default function SendHighlightDmScreen() {
     try {
       const conversationId = await getOrCreateConversation(user.id, selectedUserId);
       await sendMessage(conversationId, user.id, HIGHLIGHT_LINK_PREFIX + id);
+      hapticMedium();
       Alert.alert('Sent', 'Highlight sent.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error) {
       if (__DEV__) console.warn('[highlights-send-dm]', error);

@@ -1,5 +1,6 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useThemeColors } from '@/contexts/theme-context';
+import { hapticSelection } from '@/lib/haptics';
 import { Spacing, Radius, Typography } from '@/constants/theme';
 
 type SegmentedControlProps = {
@@ -28,8 +29,15 @@ export function SegmentedControl({
                 backgroundColor: colors.primary,
               },
             ]}
-            onPress={() => onSelect(index)}
+            onPress={() => {
+              if (index === selectedIndex) return;
+              hapticSelection();
+              onSelect(index);
+            }}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={option}
+            accessibilityState={{ selected: isSelected }}
           >
             <Text
               style={[

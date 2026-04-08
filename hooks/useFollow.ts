@@ -2,8 +2,11 @@ import { useState, useCallback, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
+import { UI_FOLLOW_FAILED } from '@/lib/user-facing-errors';
 import { track } from '@/lib/analytics';
 import { useAuth } from '@/contexts/auth-context';
+import { hapticLight } from '@/lib/haptics';
 
 type FollowCounts = {
   followers: number;
@@ -54,13 +57,14 @@ export function useFollow(targetUserId: string | null | undefined) {
   }, [targetUserId]);
 
   const fetchIsFollowing = useCallback(async () => {
-    if (!user || !targetUserId) return;
+    const followerId = user?.id;
+    if (!followerId || !targetUserId) return;
 
     try {
       const { data, error } = await supabase
         .from('follows')
         .select('id')
-        .eq('follower_id', user.id)
+        .eq('follower_id', followerId)
         .eq('following_id', targetUserId)
         .maybeSingle();
 
@@ -98,10 +102,12 @@ export function useFollow(targetUserId: string | null | undefined) {
   );
 
   const toggleFollow = useCallback(async () => {
-    if (!user || !targetUserId) return;
-    if (user.id === targetUserId) return;
+    const uid = user?.id;
+    if (!uid || !targetUserId) return;
+    if (uid === targetUserId) return;
 
     const wasFollowing = isFollowing;
+    hapticLight();
     // Optimistic update
     setIsFollowing(!wasFollowing);
     setFollowersCount((prev) => (prev !== null ? prev + (wasFollowing ? -1 : 1) : 0));
@@ -129,12 +135,14 @@ export function useFollow(targetUserId: string | null | undefined) {
       setFollowersCount((prev) => (prev !== null ? prev + (wasFollowing ? 1 : -1) : 0));
       await fetchCounts();
 
-      const message = err instanceof Error ? err.message : 'Failed to update follow. Please try again.';
-      Alert.alert('Error', message);
+      if (__DEV__) {
+        logger.warn('[useFollow] toggleFollow failed', { err });
+      }
+      Alert.alert('Error', UI_FOLLOW_FAILED);
     } finally {
       setToggleLoading(false);
     }
-  }, [user?.id, targetUserId, isFollowing, fetchCounts]);
+  }, [user?.id, targetUserId, isFollowing, fetchCounts, fetchIsFollowing]);
 
   return {
     isFollowing,

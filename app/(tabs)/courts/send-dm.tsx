@@ -26,6 +26,7 @@ import {
   type MessageableUser,
 } from '@/lib/dms';
 import { getCourtPreview, type CourtPreview } from '@/lib/courts';
+import { hapticMedium } from '@/lib/haptics';
 
 export default function SendCourtDmScreen() {
   const { courtId } = useLocalSearchParams<{ courtId: string }>();
@@ -67,7 +68,7 @@ export default function SendCourtDmScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [user, id]);
+  }, [user, id, router]);
 
   const filtered = query.trim()
     ? users.filter(
@@ -83,6 +84,7 @@ export default function SendCourtDmScreen() {
     try {
       const conversationId = await getOrCreateConversation(user.id, selectedUserId);
       await sendMessage(conversationId, user.id, COURT_LINK_PREFIX + id);
+      hapticMedium();
       Alert.alert('Sent', 'Court sent.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error) {
       if (__DEV__) console.warn('[courts-send-dm]', error);
@@ -96,7 +98,7 @@ export default function SendCourtDmScreen() {
 
   return (
     <Screen>
-      <Header title="Send via DM" showBack={false} />
+      <Header title="Send via DM" showBack />
       {loading && !court ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />

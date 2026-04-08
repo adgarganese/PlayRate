@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -34,6 +34,24 @@ import {
   formatViewCount,
   type HighlightComment,
 } from '@/lib/highlights';
+import { repostHighlight, undoRepost, hasUserReposted } from '@/lib/reposts';
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { HighlightDetailSkeleton } from '@/components/skeletons/HighlightDetailSkeleton';
+import { hapticLight } from '@/lib/haptics';
+
+/** Card horizontal inset from screen — full-bleed media width matches Card outer edge. */
+const DETAIL_CARD_SCREEN_MARGIN = Spacing.md;
+const DETAIL_MEDIA_HEIGHT_PER_WIDTH = 1.1;
+const DETAIL_MEDIA_MAX_VIEWPORT_RATIO = 0.5;
+
+function computeDetailMediaLayout(): { bleedWidth: number; mediaHeight: number } {
+  const { width: sw, height: sh } = Dimensions.get('window');
+  const bleedWidth = Math.round(sw - DETAIL_CARD_SCREEN_MARGIN * 2);
+  const mediaHeight = Math.round(
+    Math.min(bleedWidth * DETAIL_MEDIA_HEIGHT_PER_WIDTH, sh * DETAIL_MEDIA_MAX_VIEWPORT_RATIO)
+  );
+  return { bleedWidth, mediaHeight };
+}
 
 type Highlight = {
   id: string;
@@ -46,22 +64,35 @@ type Highlight = {
   created_at: string;
   like_count: number;
   view_count: number;
+  repost_count: number;
   profile_name: string | null;
   profile_username: string | null;
   profile_avatar_url: string | null;
 };
 
-/** In-app video playback with autoplay (muted for policy). */
-function HighlightVideo({ uri, thumbnailUri }: { uri: string; thumbnailUri: string | null }) {
+/** Video URL must not be passed as Image poster (avoids invalid poster + layout jump). */
+function HighlightVideo({ uri, posterImageUri }: { uri: string; posterImageUri: string | null }) {
   if (!uri) {
-    return <Image source={{ uri: thumbnailUri || undefined }} style={StyleSheet.absoluteFill} contentFit="contain" />;
+    if (posterImageUri) {
+      return (
+        <Image
+          source={{ uri: posterImageUri }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+        />
+      );
+    }
+    return <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]} />;
   }
   return (
     <Video
       source={{ uri }}
       style={StyleSheet.absoluteFill}
       useNativeControls
-      resizeMode={ResizeMode.CONTAIN}
+      resizeMode={ResizeMode.COVER}
+      posterSource={posterImageUri ? { uri: posterImageUri } : undefined}
+      usePoster={!!posterImageUri}
       isLooping
       shouldPlay
       isMuted
@@ -99,13 +130,23 @@ export default function HighlightDetailInStackScreen() {
   const [likeCount, setLikeCount] = useState(0);
   const [viewCount, setViewCount] = useState(0);
   const [togglingLike, setTogglingLike] = useState(false);
+  const [repostCount, setRepostCount] = useState(0);
+  const [hasReposted, setHasReposted] = useState(false);
+  const [togglingRepost, setTogglingRepost] = useState(false);
   const [comments, setComments] = useState<HighlightComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
-  const commentsSectionRef = useRef<View>(null);
+  const [detailMediaLayout, setDetailMediaLayout] = useState(computeDetailMediaLayout);
+
+  useEffect(() => {
+    const sub = Dimensions.addEventListener('change', () => {
+      setDetailMediaLayout(computeDetailMediaLayout());
+    });
+    return () => sub.remove();
+  }, []);
 
   const loadHighlight = async () => {
     if (!highlightId) return;
@@ -124,56 +165,78 @@ export default function HighlightDetailInStackScreen() {
         return;
       }
 
-      const { count } = await supabase
+      const viewsPromise = (async () => {
+        try {
+          const res = await supabase
+            .from('highlight_views')
+            .select('*', { count: 'exact', head: true })
+            .eq('highlight_id', highlightId);
+          return res.count ?? 0;
+        } catch {
+          return 0;
+        }
+      })();
+
+      const playbackPromise = resolveMediaUrlForPlayback(h.media_url).catch(() => h.media_url);
+
+      const likesPromise = supabase
         .from('highlight_likes')
         .select('*', { count: 'exact', head: true })
         .eq('highlight_id', highlightId);
 
-      let vCount = 0;
-      try {
-        const res = await supabase
-          .from('highlight_views')
-          .select('*', { count: 'exact', head: true })
-          .eq('highlight_id', highlightId);
-        vCount = res.count ?? 0;
-      } catch {
-        // highlight_views table may not exist yet
-      }
-
-      let userLiked = false;
-      if (user) {
-        const { data: like } = await supabase
-          .from('highlight_likes')
-          .select('user_id')
-          .eq('highlight_id', highlightId)
-          .eq('user_id', user.id)
-          .maybeSingle();
-        userLiked = !!like;
-      }
-
-      const { data: profile } = await supabase
+      const profilePromise = supabase
         .from('profiles')
         .select('name, username, avatar_url')
         .eq('user_id', h.user_id)
         .maybeSingle();
 
+      const userLikePromise = user
+        ? supabase
+            .from('highlight_likes')
+            .select('user_id')
+            .eq('highlight_id', highlightId)
+            .eq('user_id', user.id)
+            .maybeSingle()
+        : Promise.resolve({ data: null });
+
+      const repostCountPromise = supabase
+        .from('highlight_reposts')
+        .select('*', { count: 'exact', head: true })
+        .eq('highlight_id', highlightId);
+
+      const userRepostedPromise =
+        user && highlightId ? hasUserReposted(highlightId, user.id) : Promise.resolve(false);
+
+      const [resolvedPlayback, likesRes, vCount, profile, likeRow, repostCountRes, didRepost] =
+        await Promise.all([
+          playbackPromise,
+          likesPromise,
+          viewsPromise,
+          profilePromise,
+          userLikePromise,
+          repostCountPromise,
+          userRepostedPromise,
+        ]);
+
+      const count = likesRes.count ?? 0;
+      const userLiked = !!likeRow.data;
+
+      const rc = repostCountRes.error ? 0 : (repostCountRes.count ?? 0);
       setHighlight({
         ...h,
         like_count: count || 0,
         view_count: vCount || 0,
-        profile_name: profile?.name || null,
-        profile_username: profile?.username || null,
-        profile_avatar_url: profile?.avatar_url || null,
+        repost_count: rc,
+        profile_name: profile.data?.name || null,
+        profile_username: profile.data?.username || null,
+        profile_avatar_url: profile.data?.avatar_url || null,
       });
       setLikeCount(count || 0);
       setViewCount(vCount || 0);
+      setRepostCount(rc);
+      setHasReposted(didRepost);
       setIsLiked(userLiked);
-      try {
-        const resolved = await resolveMediaUrlForPlayback(h.media_url);
-        setPlaybackUri(resolved);
-      } catch {
-        setPlaybackUri(h.media_url);
-      }
+      setPlaybackUri(resolvedPlayback);
     } catch (err) {
       if (__DEV__) console.warn('[highlight-detail] load', err);
       setHighlight(null);
@@ -204,11 +267,14 @@ export default function HighlightDetailInStackScreen() {
   }, [highlightId, user?.id]);
 
   useEffect(() => {
-    if (highlight && !loading) loadComments();
-  }, [highlight?.id, loading, loadComments]);
+    // Use highlightId + loading, not full highlight object, to avoid re-fetching comments on every
+    // setHighlight identity change while keeping the same id.
+    if (!loading && highlightId) loadComments();
+  }, [highlightId, loading, loadComments]);
 
   const toggleLike = async () => {
     if (!user || !highlightId || togglingLike) return;
+    hapticLight();
 
     const wasLiked = isLiked;
     setIsLiked(!wasLiked);
@@ -237,10 +303,28 @@ export default function HighlightDetailInStackScreen() {
     }
   };
 
-  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-  const mediaWidth = screenWidth - Spacing.md * 2;
-  const mediaMaxHeight = Math.min(screenHeight * 0.5, 420);
-  const mediaHeight = Math.min(mediaWidth, mediaMaxHeight);
+  const toggleRepost = async () => {
+    if (!user || !highlightId || togglingRepost) return;
+    hapticLight();
+    const next = !hasReposted;
+    setHasReposted(next);
+    setRepostCount((c) => Math.max(0, c + (next ? 1 : -1)));
+    setTogglingRepost(true);
+    try {
+      if (next) {
+        await repostHighlight(highlightId, user.id);
+      } else {
+        await undoRepost(highlightId, user.id);
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[highlight-detail:toggleRepost]', e);
+      setHasReposted(!next);
+      setRepostCount((c) => Math.max(0, c + (next ? -1 : 1)));
+      Alert.alert('Error', 'Could not update repost. Try again.');
+    } finally {
+      setTogglingRepost(false);
+    }
+  };
 
   const handleSendComment = async () => {
     if (!user || !highlightId || !commentText.trim() || sendingComment) return;
@@ -277,16 +361,14 @@ export default function HighlightDetailInStackScreen() {
       Alert.alert('Sign In Required', 'Sign in to send highlights via DM.');
       return;
     }
-    router.push({ pathname: '/highlights/send-dm', params: { highlightId } } as any);
+    router.push({ pathname: '/highlights/send-dm', params: { highlightId } });
   };
 
   if (loading) {
     return (
       <Screen>
         <Header title="Highlight" />
-        <View style={[styles.center, { flex: 1 }]}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        <HighlightDetailSkeleton />
       </Screen>
     );
   }
@@ -306,7 +388,7 @@ export default function HighlightDetailInStackScreen() {
 
   const renderComment = ({ item }: { item: HighlightComment }) => (
     <View style={styles.commentRow}>
-      <TouchableOpacity onPress={() => router.push(`/athletes/${item.user_id}/profile` as any)} activeOpacity={0.7}>
+      <TouchableOpacity onPress={() => router.push(`/athletes/${item.user_id}/profile`)} activeOpacity={0.7}>
         <ProfilePicture avatarUrl={item.profile_avatar_url} size={32} editable={false} />
       </TouchableOpacity>
       <View
@@ -316,7 +398,7 @@ export default function HighlightDetailInStackScreen() {
         ]}
       >
         <View style={styles.commentHeader}>
-          <TouchableOpacity onPress={() => router.push(`/athletes/${item.user_id}/profile` as any)}>
+          <TouchableOpacity onPress={() => router.push(`/athletes/${item.user_id}/profile`)}>
             <Text style={[styles.commentUsername, { color: colors.text }]}>
               {item.profile_name || item.profile_username || 'User'}
             </Text>
@@ -356,7 +438,7 @@ export default function HighlightDetailInStackScreen() {
           <Card style={styles.card}>
             <TouchableOpacity
               style={styles.profileRow}
-              onPress={() => router.push(`/athletes/${highlight.user_id}/profile` as any)}
+              onPress={() => router.push(`/athletes/${highlight.user_id}/profile`)}
               activeOpacity={0.7}
             >
               <ProfilePicture avatarUrl={highlight.profile_avatar_url} size={40} editable={false} />
@@ -366,17 +448,29 @@ export default function HighlightDetailInStackScreen() {
               </View>
             </TouchableOpacity>
 
-            <View style={[styles.mediaContainer, { width: mediaWidth, height: mediaHeight }]}>
-              <View style={StyleSheet.absoluteFill}>
-                {highlight.media_type === 'video' ? (
-                  <HighlightVideo
-                    uri={playbackUri || highlight.media_url}
-                    thumbnailUri={highlight.thumbnail_url || highlight.media_url}
-                  />
-                ) : (
-                  <Image source={{ uri: playbackUri || highlight.media_url }} style={styles.image} contentFit="contain" />
-                )}
-              </View>
+            <View
+              style={[
+                styles.mediaContainer,
+                {
+                  width: detailMediaLayout.bleedWidth,
+                  height: detailMediaLayout.mediaHeight,
+                  marginHorizontal: -Spacing.lg,
+                },
+              ]}
+            >
+              {highlight.media_type === 'video' ? (
+                <HighlightVideo
+                  uri={playbackUri || highlight.media_url}
+                  posterImageUri={highlight.thumbnail_url}
+                />
+              ) : (
+                <Image
+                  source={{ uri: playbackUri || highlight.media_url }}
+                  style={styles.image}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+              )}
             </View>
 
             <View style={styles.actions}>
@@ -388,7 +482,7 @@ export default function HighlightDetailInStackScreen() {
               ) : null}
               {!isOwn && (
                 <TouchableOpacity style={styles.likeButton} onPress={toggleLike} disabled={togglingLike}>
-                  <IconSymbol name={isLiked ? 'star.fill' : 'star'} size={24} color={isLiked ? colors.primary : colors.textMuted} />
+                  <IconSymbol name={isLiked ? 'star.fill' : 'star'} size={24} color={isLiked ? colors.accentPink : colors.textMuted} />
                 </TouchableOpacity>
               )}
               <Text style={[styles.likeCount, { color: colors.textMuted }]}>{likeCount} likes</Text>
@@ -396,11 +490,44 @@ export default function HighlightDetailInStackScreen() {
                 <IconSymbol name="bubble.left.fill" size={22} color={colors.textMuted} />
                 <Text style={[styles.commentCountText, { color: colors.textMuted }]}>{comments.length}</Text>
               </View>
+              {user ? (
+                <AnimatedPressable
+                  style={styles.repostActionWrap}
+                  onPress={toggleRepost}
+                  disabled={togglingRepost}
+                  accessibilityRole="button"
+                  accessibilityLabel={hasReposted ? 'Undo repost' : 'Repost highlight'}
+                >
+                  <IconSymbol
+                    name="arrow.2.squarepath"
+                    size={22}
+                    color={hasReposted ? colors.accentOrange : colors.textMuted}
+                  />
+                  <Text
+                    style={[
+                      styles.repostCountInline,
+                      { color: hasReposted ? colors.accentOrange : colors.textMuted },
+                    ]}
+                  >
+                    {repostCount}
+                  </Text>
+                </AnimatedPressable>
+              ) : null}
               <View style={styles.shareDmRow}>
-                <TouchableOpacity style={styles.actionButton} onPress={handleDm} accessibilityLabel="Send via DM">
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={handleDm}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send via DM"
+                >
                   <IconSymbol name="envelope.fill" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={handleShare} accessibilityLabel="Share highlight">
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={handleShare}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share highlight"
+                >
                   <IconSymbol name="square.and.arrow.up" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
@@ -413,7 +540,7 @@ export default function HighlightDetailInStackScreen() {
             <Text style={[styles.date, { color: colors.textMuted }]}>{new Date(highlight.created_at).toLocaleDateString()}</Text>
           </Card>
 
-          <View ref={commentsSectionRef} style={[styles.commentsSection, { borderTopColor: colors.border }]}>
+          <View style={[styles.commentsSection, { borderTopColor: colors.border }]}>
             <Text style={[styles.commentsSectionTitle, { color: colors.text }]}>Comments</Text>
             {commentsLoading ? (
               <ActivityIndicator size="small" color={colors.primary} style={styles.commentsLoader} />
@@ -473,10 +600,13 @@ const styles = StyleSheet.create({
   profileText: { marginLeft: Spacing.md },
   profileName: { ...Typography.bodyBold },
   profileUsername: { ...Typography.mutedSmall },
-  mediaContainer: { alignSelf: 'center', borderRadius: Radius.sm, overflow: 'hidden', backgroundColor: '#000' },
-  mediaAspect: { width: '100%', aspectRatio: 1, maxHeight: '100%' },
-  videoContainer: { width: '100%', height: '100%', position: 'relative' },
-  playOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
+  mediaContainer: {
+    alignSelf: 'center',
+    maxWidth: '100%',
+    borderRadius: Radius.sm,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
   image: { width: '100%', height: '100%' },
   actions: { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.md, flexWrap: 'wrap', gap: Spacing.sm },
   viewCountWrap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -486,6 +616,8 @@ const styles = StyleSheet.create({
   commentCountWrap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   commentCountText: { ...Typography.mutedSmall },
   shareDmRow: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto', gap: Spacing.sm },
+  repostActionWrap: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: Spacing.xs },
+  repostCountInline: { ...Typography.mutedSmall, fontWeight: '600' },
   actionButton: { padding: Spacing.xs },
   caption: { ...Typography.body, marginTop: Spacing.sm },
   sport: { ...Typography.mutedSmall, marginTop: Spacing.xs },

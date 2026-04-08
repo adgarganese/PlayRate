@@ -27,6 +27,11 @@ import {
   type NotificationRow,
 } from '@/lib/notifications';
 import { Spacing, Typography, Radius } from '@/constants/theme';
+import { AnimatedListItem } from '@/components/ui/AnimatedListItem';
+import { logger } from '@/lib/logger';
+import { hapticSuccess } from '@/lib/haptics';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { EmptyInboxIllustration } from '@/components/illustrations';
 
 type Tab = 'messages' | 'notifications';
 
@@ -100,19 +105,22 @@ function MessagesTab() {
   const [refreshing, setRefreshing] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     if (!user?.id) {
       setConversations([]);
       setLoading(false);
-      return;
+      setRefreshing(false);
+      return false;
     }
     try {
       const list = await listConversations(user.id);
       const deduped = list.filter((c, i) => list.findIndex((x) => x.id === c.id) === i);
       setConversations(deduped);
+      return true;
     } catch (e) {
-      if (__DEV__) console.error('List conversations:', e);
+      logger.error('List conversations failed', { err: e, screen: 'inbox', tab: 'messages' });
       setConversations([]);
+      return false;
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -152,8 +160,19 @@ function MessagesTab() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    load();
+    void load().then((ok) => {
+      if (ok) hapticSuccess();
+    });
   }, [load]);
+
+  const renderConversationItem = useCallback(
+    ({ item, index }: { item: ConversationWithMeta; index: number }) => (
+      <AnimatedListItem index={index}>
+        <ConversationRow item={item} onPress={() => router.push(`/chat/${item.id}`)} />
+      </AnimatedListItem>
+    ),
+    [router]
+  );
 
   if (!user) {
     return (
@@ -178,15 +197,12 @@ function MessagesTab() {
   if (conversations.length === 0) {
     return (
       <View style={[styles.tabContent, styles.centered]}>
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>No messages yet</Text>
-        <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-          Find players and start a conversation.
-        </Text>
-        <Button
-          title="Find Players"
-          onPress={() => router.push('/profiles')}
-          variant="primary"
-          style={styles.emptyCta}
+        <EmptyState
+          title="No messages yet"
+          subtitle="Find players and start a conversation."
+          actionLabel="Find Players"
+          onAction={() => router.push('/profiles')}
+          illustration={<EmptyInboxIllustration />}
         />
       </View>
     );
@@ -198,14 +214,14 @@ function MessagesTab() {
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.listContent}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-      }
-      renderItem={({ item }) => (
-        <ConversationRow
-          item={item}
-          onPress={() => router.push(`/chat/${item.id}`)}
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.accentPink}
+          colors={[colors.accentPink]}
         />
-      )}
+      }
+      renderItem={renderConversationItem}
     />
   );
 }
@@ -274,20 +290,23 @@ function NotificationsTab() {
   const [markingAll, setMarkingAll] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     if (!user?.id) {
       setList([]);
       setLoading(false);
-      return;
+      setRefreshing(false);
+      return false;
     }
     try {
       const data = await listNotifications(user.id);
       const arr = data || [];
       const deduped = arr.filter((n, i) => arr.findIndex((x) => x.id === n.id) === i);
       setList(deduped);
+      return true;
     } catch (e) {
-      if (__DEV__) console.error('List notifications:', e);
+      logger.error('List notifications failed', { err: e, screen: 'inbox', tab: 'notifications' });
       setList([]);
+      return false;
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -360,6 +379,13 @@ function NotificationsTab() {
     [user?.id, router, load]
   );
 
+  const renderNotificationItem = useCallback(
+    ({ item }: { item: NotificationRow }) => (
+      <NotificationRowItem item={item} onPress={() => handlePress(item)} />
+    ),
+    [handlePress]
+  );
+
   if (!user) {
     return (
       <View style={styles.tabContent}>
@@ -405,11 +431,19 @@ function NotificationsTab() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void load().then((ok) => {
+                  if (ok) hapticSuccess();
+                });
+              }}
+              tintColor={colors.accentPink}
+              colors={[colors.accentPink]}
+            />
           }
-          renderItem={({ item }) => (
-            <NotificationRowItem item={item} onPress={() => handlePress(item)} />
-          )}
+          renderItem={renderNotificationItem}
         />
       )}
     </View>
@@ -550,17 +584,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
     textAlign: 'center',
   },
-  emptySubtitle: {
-    ...Typography.muted,
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
-  },
   emptyText: {
     ...Typography.muted,
     textAlign: 'center',
-  },
-  emptyCta: {
-    marginTop: Spacing.sm,
   },
   markAllRow: {
     paddingVertical: Spacing.sm,

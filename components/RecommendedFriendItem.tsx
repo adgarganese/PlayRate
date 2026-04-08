@@ -5,6 +5,7 @@ import { ProfilePicture } from './ProfilePicture';
 import { Button } from './ui/Button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
+import { hapticLight } from '@/lib/haptics';
 
 type RecommendedFriendItemProps = {
   userId: string;
@@ -31,6 +32,7 @@ export function RecommendedFriendItem({
     if (!user || loading) return;
 
     const wasFollowing = isFollowing;
+    hapticLight();
     // Optimistic update
     setIsFollowing(!wasFollowing);
     setLoading(true);

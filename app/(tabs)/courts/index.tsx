@@ -1,5 +1,18 @@
+/**
+ * REINTRODUCTION STEP 2: Real Courts screen restored. Highlights, Athletes, Profile remain placeholders.
+ * Stable baseline: Home + Courts real; minimal tab shell; no haptics.
+ */
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { View, SectionList, StyleSheet, RefreshControl, TextInput as RNTextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import {
+  View,
+  SectionList,
+  StyleSheet,
+  RefreshControl,
+  TextInput as RNTextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  type SectionListRenderItemInfo,
+} from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchCourts, type Court } from '@/lib/courts';
@@ -7,13 +20,16 @@ import CourtCard from '@/components/CourtCard';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { AppText } from '@/components/ui/AppText';
-import { LoadingScreen } from '@/components/ui/LoadingScreen';
+import { CourtListSkeleton } from '@/components/skeletons/CourtListSkeleton';
 import { ErrorScreen } from '@/components/ui/ErrorScreen';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { EmptyCourtIllustration } from '@/components/illustrations';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { trackOnce } from '@/lib/analytics';
 import { Spacing, Typography, Radius } from '@/constants/theme';
+import { AnimatedListItem } from '@/components/ui/AnimatedListItem';
+import { hapticSuccess } from '@/lib/haptics';
 
 type CourtSection = {
   title: string;
@@ -36,27 +52,22 @@ export default function CourtsScreen() {
 
   // Debounce search input
   useEffect(() => {
-    // Clear existing timer
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    // If input is empty, immediately clear search
     if (!searchInput.trim()) {
       setSearchQuery('');
       return;
     }
 
-    // Set searching state immediately for better UX
     setSearching(true);
 
-    // Set new timer
     debounceTimerRef.current = setTimeout(() => {
       setSearchQuery(searchInput.trim());
       setSearching(false);
     }, DEBOUNCE_MS);
 
-    // Cleanup on unmount or input change
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
@@ -64,7 +75,7 @@ export default function CourtsScreen() {
     };
   }, [searchInput]);
 
-  const loadCourts = useCallback(async (isRefresh = false) => {
+  const loadCourts = useCallback(async (isRefresh = false): Promise<boolean> => {
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -73,7 +84,6 @@ export default function CourtsScreen() {
     setError(null);
 
     try {
-      // Pass searchQuery to fetchCourts
       const courts = await fetchCourts(user?.id, searchQuery);
 
       const hasSearch = searchQuery.trim().length > 0;
@@ -83,7 +93,6 @@ export default function CourtsScreen() {
           data: courts,
         }] : []);
       } else {
-        // Default behavior: split by followed status
         const followedCourts = courts.filter(c => c.isFollowed);
         const otherCourts = courts.filter(c => !c.isFollowed);
 
@@ -103,14 +112,16 @@ export default function CourtsScreen() {
 
         setSections(newSections);
       }
+      return true;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load courts';
-      
+
       if (errorMessage.includes('permission') || errorMessage.includes('42501')) {
         setError('Unable to load courts. Please sign in and try again.');
       } else {
         setError('Unable to load courts. Please try again.');
       }
+      return false;
     } finally {
       if (isRefresh) {
         setRefreshing(false);
@@ -122,10 +133,6 @@ export default function CourtsScreen() {
   }, [user?.id, searchQuery]);
 
   useEffect(() => {
-    loadCourts();
-  }, [loadCourts]);
-
-  useEffect(() => {
     trackOnce('courts_list_viewed', 'courts-list-session', { view_mode: 'recommended' });
   }, []);
 
@@ -135,9 +142,10 @@ export default function CourtsScreen() {
     }, [loadCourts])
   );
 
-  const onRefresh = () => {
-    loadCourts(true);
-  };
+  const onRefresh = useCallback(async () => {
+    const ok = await loadCourts(true);
+    if (ok) hapticSuccess();
+  }, [loadCourts]);
 
   const handleCourtPress = (courtId: string) => {
     router.push(`/courts/${courtId}`);
@@ -147,11 +155,6 @@ export default function CourtsScreen() {
     setSearchInput('');
     setSearchQuery('');
   };
-
-  // Only show full-screen loading on initial load (no search active)
-  if (loading && !searchQuery) {
-    return <LoadingScreen message="Loading courts..." />;
-  }
 
   if (error) {
     return (
@@ -169,9 +172,18 @@ export default function CourtsScreen() {
     </View>
   );
 
-  const renderItem = ({ item }: { item: Court }) => (
-    <CourtCard court={item} onPress={handleCourtPress} />
-  );
+  const renderItem = ({ item, index, section }: SectionListRenderItemInfo<Court, CourtSection>) => {
+    const sectionIndex = sections.indexOf(section);
+    const flatIndex =
+      sectionIndex <= 0
+        ? index
+        : sections.slice(0, sectionIndex).reduce((sum, s) => sum + s.data.length, 0) + index;
+    return (
+      <AnimatedListItem index={flatIndex}>
+        <CourtCard court={item} onPress={handleCourtPress} />
+      </AnimatedListItem>
+    );
+  };
 
   const isLoading = loading || searching;
 
@@ -193,15 +205,14 @@ export default function CourtsScreen() {
               : undefined
           }
         />
-        
-        {/* Search Bar */}
+
         <View style={[styles.searchContainer, { backgroundColor: colors.bg }]}>
           <View style={[styles.searchInputContainer, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-            <IconSymbol 
-              name="magnifyingglass" 
-              size={18} 
-              color={colors.textMuted} 
-              style={styles.searchIcon} 
+            <IconSymbol
+              name="magnifyingglass"
+              size={18}
+              color={colors.textMuted}
+              style={styles.searchIcon}
             />
             <RNTextInput
               style={[styles.searchInput, { color: colors.text }]}
@@ -232,7 +243,9 @@ export default function CourtsScreen() {
           )}
         </View>
 
-        {sections.length > 0 ? (
+        {loading && !searchQuery ? (
+          <CourtListSkeleton />
+        ) : sections.length > 0 ? (
           <SectionList
             style={{ backgroundColor: isDark ? colors.bg : undefined }}
             contentContainerStyle={[styles.listContainer, isDark ? { backgroundColor: colors.bg } : undefined]}
@@ -241,7 +254,12 @@ export default function CourtsScreen() {
             renderItem={renderItem}
             renderSectionHeader={renderSectionHeader}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.accentPink}
+                colors={[colors.accentPink]}
+              />
             }
             ListEmptyComponent={
               <EmptyState
@@ -249,6 +267,7 @@ export default function CourtsScreen() {
                 subtitle={searchQuery ? 'Try adjusting your search terms' : undefined}
                 actionLabel={!searchQuery && user ? 'Add First Court' : undefined}
                 onAction={!searchQuery && user ? () => router.push('/courts/new') : undefined}
+                illustration={<EmptyCourtIllustration />}
               />
             }
           />
@@ -258,6 +277,7 @@ export default function CourtsScreen() {
             subtitle={searchQuery ? 'Try adjusting your search terms' : undefined}
             actionLabel={!searchQuery && user ? 'Add First Court' : undefined}
             onAction={!searchQuery && user ? () => router.push('/courts/new') : undefined}
+            illustration={<EmptyCourtIllustration />}
           />
         ) : null}
       </View>
