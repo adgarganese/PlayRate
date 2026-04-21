@@ -9,7 +9,7 @@ export type ProfileAuthGate = {
 
 /**
  * Single read for post-auth routing: onboarding first, then beta terms.
- * On read error: fail-open to main app (same policy as onboarding-only reads).
+ * On read error: fail-closed to onboarding so we never skip terms/profile state silently.
  */
 export async function fetchProfileAuthGate(userId: string): Promise<ProfileAuthGate> {
   const { data, error } = await supabase
@@ -19,10 +19,8 @@ export async function fetchProfileAuthGate(userId: string): Promise<ProfileAuthG
     .maybeSingle();
 
   if (error) {
-    if (__DEV__) {
-      logger.warn('[onboarding-profile] gate read failed → fail-open tabs', { err: error, userId });
-    }
-    return { needsOnboarding: false, needsTerms: false };
+    logger.error('[onboarding-profile] gate read failed → routing to onboarding', { err: error, userId });
+    return { needsOnboarding: true, needsTerms: false };
   }
   if (!data) {
     if (__DEV__) {
