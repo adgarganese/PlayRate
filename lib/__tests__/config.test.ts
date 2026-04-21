@@ -105,9 +105,10 @@ describe('config', () => {
     expect(posthogApiKey).toBeUndefined();
   });
 
-  it('sentryEnvironment defaults to beta', () => {
+  it('sentryEnvironment defaults to development in __DEV__', () => {
+    delete process.env.EXPO_PUBLIC_SENTRY_ENVIRONMENT;
     const { sentryEnvironment } = loadConfig();
-    expect(sentryEnvironment).toBe('beta');
+    expect(sentryEnvironment).toBe('development');
   });
 
   it('sentryEnvironment reads EXPO_PUBLIC_SENTRY_ENVIRONMENT', () => {
