@@ -1,3 +1,4 @@
+import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '@/contexts/theme-context';
@@ -10,22 +11,24 @@ type ScreenProps = {
   paddingHorizontal?: number;
 };
 
-export function Screen({ 
-  children, 
-  style, 
+export function Screen({
+  children,
+  style,
   contentContainerStyle,
   paddingHorizontal = Spacing.lg,
 }: ScreenProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useThemeColors();
 
-  // pointerEvents="box-none" so touches pass through to tab bar when not on interactive content (fixes unclickable tabs on TestFlight).
   return (
     <View
       pointerEvents="box-none"
       style={[
         styles.container,
-        { paddingTop: insets.top, backgroundColor: colors.bg },
+        {
+          paddingTop: insets.top,
+          backgroundColor: colors.bg,
+        },
         style,
       ]}
     >

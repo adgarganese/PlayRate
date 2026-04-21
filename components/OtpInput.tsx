@@ -61,7 +61,13 @@ export function OtpInput({
 
   return (
     <View>
-      <Text style={[styles.label, { color: colors.text }]}>Enter Verification Code</Text>
+      <Text
+        style={[styles.label, { color: colors.text }]}
+        accessible={false}
+        importantForAccessibility="no"
+      >
+        Enter Verification Code
+      </Text>
       <View style={styles.container}>
         {otp.map((digit, index) => (
           <TextInput
@@ -89,6 +95,7 @@ export function OtpInput({
             maxLength={1}
             selectTextOnFocus
             editable={editable}
+            accessibilityLabel={`Verification code, digit ${index + 1} of ${length}`}
           />
         ))}
       </View>

@@ -106,7 +106,7 @@ After you’ve set **EXPO_PUBLIC_SENTRY_DSN** (in EAS for the profile you’re u
 
 - Run a **production** or **preview** build: `eas build --platform ios --profile production` (or preview).
 - In the build logs, look for Sentry/source map upload success (no “Auth token is required” or upload errors).
-- In **Sentry** → your project → **Settings → Source Maps** (or **Releases**): you should see a release (e.g. `PlayRate@1.0.0`) with uploaded artifacts. That confirms the auth token and org/project are correct for uploads.
+- In **Sentry** → your project → **Settings → Source Maps** (or **Releases**): you should see a release (e.g. `PlayRate@1.1.0`) with uploaded artifacts. That confirms the auth token and org/project are correct for uploads.
 
 ### 4. Optional: trigger a test error
 

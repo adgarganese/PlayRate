@@ -1,48 +1,64 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# dependencies
+# --- Dependencies ---
 node_modules/
 
-# Expo
-.expo/
+# --- Build artifacts ---
+build/
 dist/
 web-build/
-expo-env.d.ts
+.expo/
+# Native (full android/ is generated on EAS; ignore nested build dirs when android exists locally)
+android/app/build/
+android/build/
+ios/build/
+*.tsbuildinfo
 
-# Native
-.kotlin/
+# --- Expo / Metro ---
+expo-env.d.ts
+.metro-health-check*
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- IDE (local settings; un-ignore specific files with ! if the team shares them) ---
+.vscode/
+.idea/
+
+# --- Debug logs ---
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# --- Expo / EAS: signing, certs, merge backups ---
 *.orig.*
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
 *.pem
+.kotlin/
 
-# local env files (do not commit secrets)
-.env*.local
+# --- Secrets, env, local credentials (app keys; never commit real values) ---
 .env
+.env.local
+.env*.local
+maps.env
 .env.txt
+.env.*
+!.env.example
+# Expo / Play local credential files (if present in project root)
+credentials.json
 
-# typescript
-*.tsbuildinfo
+# --- Android signing & distributable binaries (local builds) ---
+*.keystore
+*.apk
+*.aab
 
+# --- Project-specific ---
 app-example
 
 # generated native folders (ios committed so EAS skips prebuild; android still generated on EAS)
 /android
-
-.env.local
-
-.env.local

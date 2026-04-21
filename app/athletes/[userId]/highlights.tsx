@@ -9,9 +9,13 @@ import { AppText } from '@/components/ui/AppText';
 import { ProfilePicture } from '@/components/ProfilePicture';
 import { HighlightPoster } from '@/components/HighlightPoster';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing } from '@/constants/theme';
+import { UI_HIGHLIGHTS_LOAD_FAILED } from '@/lib/user-facing-errors';
+import { logger } from '@/lib/logger';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 const PAGE_SIZE = 20;
 
@@ -20,6 +24,7 @@ export default function AthleteHighlightsScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [highlights, setHighlights] = useState<FeedHighlight[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -27,7 +32,8 @@ export default function AthleteHighlightsScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const loadFeed = useCallback(async (offset = 0, append = false) => {
-    if (!userId || !user) return;
+    const viewerId = user?.id;
+    if (!userId || !viewerId) return;
 
     if (append) {
       setLoadingMore(true);
@@ -39,13 +45,14 @@ export default function AthleteHighlightsScreen() {
     try {
       const result = await loadHighlightsFeed(
         'friends_local',
-        user.id,
+        viewerId,
         offset,
         PAGE_SIZE,
         { followingIds: [userId] }
       );
 
       if (result.error) {
+        logger.error('[athlete-highlights] feed error', { err: result.error, userId, viewerId });
         setError(result.error);
         if (!append) setHighlights([]);
       } else {
@@ -54,8 +61,8 @@ export default function AthleteHighlightsScreen() {
         setHasMore(result.hasMore ?? false);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load';
-      setError(message);
+      logger.error('[athlete-highlights] feed threw', { err, userId, viewerId });
+      setError(UI_HIGHLIGHTS_LOAD_FAILED);
       if (!append) setHighlights([]);
     } finally {
       setLoading(false);
@@ -64,7 +71,7 @@ export default function AthleteHighlightsScreen() {
   }, [userId, user?.id]);
 
   useEffect(() => {
-    if (userId && user) {
+    if (userId && user?.id) {
       loadFeed(0, false);
     }
   }, [userId, user?.id, loadFeed]);
@@ -76,7 +83,7 @@ export default function AthleteHighlightsScreen() {
   };
 
   const openHighlight = (highlightId: string) => {
-    router.push(`/highlights/${highlightId}` as any);
+    router.push(`/highlights/${highlightId}`);
   };
 
   if (authLoading) return null;
@@ -93,15 +100,17 @@ export default function AthleteHighlightsScreen() {
         </View>
       ) : error && highlights.length === 0 ? (
         <View style={[styles.center, styles.errorBlock, { flex: 1 }]}>
-          <AppText variant="body" color="textMuted" style={styles.errorText}>
-            {error}
-          </AppText>
+          <ErrorState onRetry={() => void loadFeed(0, false)} />
         </View>
       ) : (
         <FlatList
           data={highlights}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={highlights.length === 0 ? styles.emptyList : styles.list}
+          keyExtractor={(item) => item.feed_item_key}
+          contentContainerStyle={
+            highlights.length === 0
+              ? [styles.emptyList, { paddingBottom: scrollBottomPadding }]
+              : [styles.list, { paddingBottom: scrollBottomPadding }]
+          }
           renderItem={({ item }) => (
             <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <TouchableOpacity onPress={() => openHighlight(item.id)} activeOpacity={0.8}>
@@ -120,6 +129,7 @@ export default function AthleteHighlightsScreen() {
                   thumbnailUrl={item.thumbnail_url}
                   mediaUrl={item.media_url}
                   mediaType={item.media_type}
+                  caption={item.caption}
                 />
                 {item.caption ? (
                   <AppText variant="body" color="text" style={styles.caption} numberOfLines={2}>
@@ -128,7 +138,7 @@ export default function AthleteHighlightsScreen() {
                 ) : null}
               </TouchableOpacity>
               <View style={styles.stats}>
-                <IconSymbol name="heart.fill" size={14} color={item.is_liked ? colors.primary : colors.textMuted} />
+                <IconSymbol name="heart.fill" size={14} color={item.is_liked ? colors.accentPink : colors.textMuted} />
                 <AppText variant="mutedSmall" color="textMuted" style={styles.statText}>{item.like_count}</AppText>
                 <IconSymbol name="bubble.left.fill" size={14} color={colors.textMuted} style={styles.statIcon} />
                 <AppText variant="mutedSmall" color="textMuted" style={styles.statText}>{item.comment_count ?? 0}</AppText>
@@ -168,12 +178,8 @@ const styles = StyleSheet.create({
   errorBlock: {
     padding: Spacing.lg,
   },
-  errorText: {
-    textAlign: 'center',
-  },
   list: {
     padding: Spacing.lg,
-    paddingBottom: Spacing.xxl + 64,
   },
   emptyList: {
     flexGrow: 1,

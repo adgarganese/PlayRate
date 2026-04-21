@@ -1,11 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { Image } from 'expo-image';
+import { useResolvedMediaUri } from '@/hooks/useResolvedMediaUri';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useThemeColors } from '@/contexts/theme-context';
 import { IconSymbol } from './ui/icon-symbol';
+import { prepareAvatarImageForUpload } from '@/lib/image-upload-prepare';
+import { logger } from '@/lib/logger';
+import { track } from '@/lib/analytics';
+import { UI_REMOVE_AVATAR_FAILED, UI_UPLOAD_FAILED } from '@/lib/user-facing-errors';
 
 /** Storage bucket for profile pictures. Must exist in Supabase (Storage). If you see "Bucket not found", create it in the dashboard.
  * Test plan (iPhone TestFlight): Profile → tap avatar → choose photo → upload succeeds or shows clear bucket-message. */
@@ -27,6 +32,27 @@ export function ProfilePicture({
   const { user } = useAuth();
   const { colors } = useThemeColors();
   const [uploading, setUploading] = useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const displayUri = useResolvedMediaUri(avatarUrl);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUrl]);
+
+  useEffect(() => {
+    if (__DEV__ && avatarUrl) {
+      const p = avatarUrl.length > 100 ? `${avatarUrl.slice(0, 100)}…` : avatarUrl;
+      console.warn('[ProfilePicture] avatarUrl raw:', p);
+    }
+  }, [avatarUrl]);
 
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -58,25 +84,27 @@ export function ProfilePicture({
         return;
       }
 
-      const imageUri = result.assets[0].uri;
-      await uploadImage(imageUri);
+      const asset = result.assets[0];
+      await uploadImage(asset.uri, { width: asset.width, height: asset.height });
     } catch (error) {
       if (__DEV__) console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
 
-  const uploadImage = async (uri: string) => {
+  const uploadImage = async (
+    uri: string,
+    pickerDimensions?: { width?: number | null; height?: number | null }
+  ) => {
     if (!user) return;
 
     setUploading(true);
     try {
-      // Path: avatars/{userId}/{timestamp}.ext for consistent RLS (e.g. allow user to upload to avatars/{userId}/*)
-      const response = await fetch(uri);
+      const prepared = await prepareAvatarImageForUpload(uri, pickerDimensions);
+      const response = await fetch(prepared.uri);
       const blob = await response.blob();
-      const fileExt = (uri.split('.').pop() || 'jpg').toLowerCase();
-      const contentType = fileExt === 'jpg' ? 'image/jpeg' : `image/${fileExt}`;
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      const fileName = `${user.id}/${Date.now()}.jpg`;
+      const contentType = prepared.contentType;
 
       const { error: uploadError } = await supabase.storage
         .from(AVATAR_BUCKET)
@@ -109,17 +137,14 @@ export function ProfilePicture({
       if (onUpdate) {
         onUpdate(publicUrl);
       }
+      track('profile_updated', { fields_changed: ['avatar_url'] });
     } catch (error: unknown) {
       const err = error as { message?: string; code?: string };
       if (__DEV__) console.warn('[ProfilePicture] upload error', err?.message, err?.code);
-      const msg = error && typeof error === 'object' && 'message' in error ? String((error as { message?: string }).message) : '';
-      const isBucketNotFound = /bucket.*not found|not found|Object not found/i.test(msg);
-      const message = isBucketNotFound
-        ? `Storage bucket "${AVATAR_BUCKET}" doesn't exist. Create it in Supabase (Storage) and ensure RLS allows authenticated uploads to avatars/{user_id}/*.`
-        : (error instanceof Error ? error.message : 'Failed to upload image. Please try again.');
-      Alert.alert('Upload Failed', message);
+      logger.error('[ProfilePicture] upload failed', { err: error });
+      Alert.alert('Upload Failed', UI_UPLOAD_FAILED);
     } finally {
-      setUploading(false);
+      if (mountedRef.current) setUploading(false);
     }
   };
 
@@ -154,12 +179,13 @@ export function ProfilePicture({
               if (onUpdate) {
                 onUpdate(null);
               }
+              track('profile_updated', { fields_changed: ['avatar_url'] });
             } catch (error: unknown) {
               if (__DEV__) console.error('Error removing profile picture:', error);
-              const message = error instanceof Error ? error.message : 'Failed to remove profile picture.';
-              Alert.alert('Error', message);
+              logger.error('[ProfilePicture] remove failed', { err: error });
+              Alert.alert('Error', UI_REMOVE_AVATAR_FAILED);
             } finally {
-              setUploading(false);
+              if (mountedRef.current) setUploading(false);
             }
           },
         },
@@ -179,14 +205,23 @@ export function ProfilePicture({
         <View style={[styles.placeholder, containerStyle]}>
           <ActivityIndicator size="small" color={colors.primary} />
         </View>
-      ) : avatarUrl ? (
+      ) : displayUri && !avatarLoadFailed ? (
         <Image
-          source={{ uri: avatarUrl }}
+          source={{ uri: displayUri }}
           style={[styles.image, containerStyle]}
           contentFit="cover"
+          onError={() => {
+            if (mountedRef.current) setAvatarLoadFailed(true);
+          }}
+          accessibilityLabel="Profile picture"
         />
       ) : (
-        <View style={[styles.placeholder, containerStyle]}>
+        <View
+          style={[styles.placeholder, containerStyle]}
+          accessible
+          accessibilityLabel="Profile picture, not set"
+          accessibilityRole="image"
+        >
           <IconSymbol
             name="person.fill"
             size={size * 0.5}

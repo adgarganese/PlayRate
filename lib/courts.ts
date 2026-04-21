@@ -1,6 +1,6 @@
 /**
  * Courts module: barrel re-export.
- * - courts-api: core CRUD, list, detail, comments, nearby, check-in, ratings, photos
+ * - courts-api: core CRUD, list, detail, nearby, check-in, ratings, photos
  * - courts-recommendations: RecommendedCourtItem, fetchRecommendedRuns (court-based scoring)
  * - court-follows: getFollowedCourtIds, checkFollowingCourt
  */

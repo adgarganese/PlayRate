@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useMemo } from 'react';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LightColors, DarkColors, AccentColors, PRIMARY, brandBlueDark, brandBlueTextDark } from '@/constants/theme';
 
@@ -23,6 +23,9 @@ type ThemeColors = {
   goldSoft: string;
   success: string;
   successSoft: string;
+  accentPink: string;
+  accentElectric: string;
+  accentOrange: string;
   background: string;
   card: string;
   textPrimary: string;
@@ -45,7 +48,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const colorScheme: ColorScheme = systemColorScheme ?? 'light';
   const isDark = colorScheme === 'dark';
 
-  const colors: ThemeColors = {
+  const colors = useMemo((): ThemeColors => ({
     bg: isDark ? DarkColors.bg : LightColors.bg,
     surface: isDark ? DarkColors.surface : LightColors.surface,
     surfaceAlt: isDark ? DarkColors.surfaceAlt : LightColors.surfaceAlt,
@@ -56,21 +59,29 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     text: isDark ? DarkColors.text : LightColors.text,
     textMuted: isDark ? DarkColors.textMuted : LightColors.textMuted,
     textOnPrimary: isDark ? DarkColors.textOnPrimary : LightColors.textOnPrimary,
-    primary: isDark ? brandBlueDark : PRIMARY, // Light: #0000FF (PRIMARY). Dark: lighter blue for readability.
-    primarySmallText: isDark ? brandBlueTextDark : PRIMARY, // Light: #0000FF
+    primary: isDark ? brandBlueDark : PRIMARY,
+    primarySmallText: isDark ? brandBlueTextDark : PRIMARY,
     cyanGlow: AccentColors.cyanGlow,
     goldTier: AccentColors.goldTier,
     gold: AccentColors.goldTier,
     goldSoft: AccentColors.goldSoft,
     success: AccentColors.success,
     successSoft: AccentColors.successSoft,
+    accentPink: AccentColors.accentPink,
+    accentElectric: AccentColors.accentElectric,
+    accentOrange: AccentColors.accentOrange,
     background: isDark ? DarkColors.background : LightColors.background,
     card: isDark ? DarkColors.card : LightColors.card,
     textPrimary: isDark ? DarkColors.textPrimary : LightColors.textPrimary,
-  };
+  }), [isDark]);
+
+  const themeValue = useMemo(
+    () => ({ colors, colorScheme, isDark }),
+    [colors, colorScheme, isDark]
+  );
 
   return (
-    <ThemeContext.Provider value={{ colors, colorScheme, isDark }}>
+    <ThemeContext.Provider value={themeValue}>
       {children}
     </ThemeContext.Provider>
   );

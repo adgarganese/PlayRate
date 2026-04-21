@@ -32,6 +32,8 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { track, trackOnce } from '@/lib/analytics';
 import { logDevError } from '@/lib/dev-log';
+import { normalizeCosignTierName, tierRank } from '@/lib/tiers';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 const MAX_COSIGNS = 3;
 const MAX_NOTE_LENGTH = 140;
@@ -45,6 +47,7 @@ export default function RunRecapScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
 
   const [phase, setPhase] = useState<'loading' | 'ineligible' | 'recap' | 'completed'>('loading');
   const [eligibilityError, setEligibilityError] = useState<string | null>(null);
@@ -55,10 +58,10 @@ export default function RunRecapScreen() {
   const [cosignsSubmitted, setCosignsSubmitted] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [repRollup, setRepRollup] = useState<{ total_cosigns: number; rep_level: number } | null>(null);
+  const [repRollup, setRepRollup] = useState<{ total_cosigns: number; rep_level: string } | null>(null);
   const [loadingRep, setLoadingRep] = useState(false);
   const recapOpenedFired = useRef(false);
-  const initialRepLevelRef = useRef<number | null>(null);
+  const initialRepLevelRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -86,7 +89,9 @@ export default function RunRecapScreen() {
       setPhase('recap');
       // Store initial rep level for rep_level_up detection on completion
       const rollup = await fetchRepRollups(user.id);
-      if (isMountedRef.current && rollup) initialRepLevelRef.current = rollup.rep_level;
+      if (isMountedRef.current && rollup) {
+        initialRepLevelRef.current = normalizeCosignTierName(rollup.rep_level);
+      }
     } catch (error) {
       logDevError('recap:loadEligibilityAndParticipants', error);
       if (isMountedRef.current) {
@@ -146,12 +151,19 @@ export default function RunRecapScreen() {
         if (!isMountedRef.current) return;
         setLoadingRep(false);
         if (r) {
-          setRepRollup({ total_cosigns: r.total_cosigns, rep_level: r.rep_level });
+          setRepRollup({
+            total_cosigns: r.total_cosigns,
+            rep_level: normalizeCosignTierName(r.rep_level),
+          });
           const fromLevel = initialRepLevelRef.current;
-          if (fromLevel != null && r.rep_level > fromLevel) {
+          const toTier = normalizeCosignTierName(r.rep_level);
+          if (
+            fromLevel != null &&
+            tierRank(toTier) > tierRank(fromLevel)
+          ) {
             track('rep_level_up', {
               from_level: fromLevel,
-              to_level: r.rep_level,
+              to_level: toTier,
               total_cosigns: r.total_cosigns,
             });
           }
@@ -213,7 +225,7 @@ export default function RunRecapScreen() {
             ) : progress ? (
               <View style={styles.repBlock}>
                 <Text style={[Typography.body, { color: colors.textMuted }]}>
-                  Your rep: {repRollup!.total_cosigns} cosigns • Level {repRollup!.rep_level}
+                  Your rep: {repRollup!.total_cosigns} cosigns (last 90 days) • {repRollup!.rep_level}
                 </Text>
                 <Text style={[Typography.mutedSmall, { color: colors.textMuted, marginTop: Spacing.xs }]}>
                   {progress.label}
@@ -239,7 +251,7 @@ export default function RunRecapScreen() {
         keyboardVerticalOffset={0}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPadding }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentInsetAdjustmentBehavior="never"
@@ -262,6 +274,7 @@ export default function RunRecapScreen() {
                   key={p.user_id}
                   title={displayName(p)}
                   subtitle={p.username ? `@${p.username}` : undefined}
+                  tierRepLevel={p.rep_level}
                   onPress={() => setSelectedParticipant(p)}
                   style={
                     selectedParticipant?.user_id === p.user_id
@@ -350,9 +363,7 @@ export default function RunRecapScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  scrollContent: {
-    paddingBottom: Spacing.xxl,
-  },
+  scrollContent: {},
   padded: { paddingHorizontal: Spacing.lg },
   centered: {
     flex: 1,

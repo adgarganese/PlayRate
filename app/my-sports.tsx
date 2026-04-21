@@ -13,6 +13,9 @@ import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Spacing } from '@/constants/theme';
 import { isSportEnabled } from '@/constants/sport-definitions';
+import { logger } from '@/lib/logger';
+import { UI_LOAD_FAILED } from '@/lib/user-facing-errors';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type Sport = {
   id: string;
@@ -27,6 +30,7 @@ type ProfileSport = {
 export default function MySportsScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [allSports, setAllSports] = useState<Sport[]>([]);
   const [mySports, setMySports] = useState<ProfileSport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +60,10 @@ export default function MySportsScreen() {
       .order('name');
 
     if (sportsError) {
-      Alert.alert('Error', `Failed to load sports: ${sportsError.message}`);
+      if (__DEV__) {
+        logger.warn('[my-sports] load sports failed', { err: sportsError });
+      }
+      Alert.alert('Error', UI_LOAD_FAILED);
       setLoading(false);
       return;
     }
@@ -142,7 +149,7 @@ export default function MySportsScreen() {
         showBack={false}
       />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPadding }]}
         showsVerticalScrollIndicator={false}
       >
         {allSports.length === 0 ? (
@@ -216,9 +223,7 @@ export default function MySportsScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: Spacing.xl,
-  },
+  scrollContent: {},
   section: {
     marginBottom: Spacing.xl,
   },

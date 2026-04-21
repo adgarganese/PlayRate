@@ -39,19 +39,33 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { HighlightPreviewCard } from '@/components/HighlightPreviewCard';
 import { CourtPreviewCard } from '@/components/CourtPreviewCard';
 import { logger } from '@/lib/logger';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
+import { normalizeCosignTierName } from '@/lib/tiers';
+import { TierBadge } from '@/components/ui/TierBadge';
 
 function formatMessageTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+type SenderMeta = {
+  name: string | null;
+  username: string | null;
+  rep_level: string | null;
+};
+
 const MessageBubble = React.memo(function MessageBubble({
   message,
   isMine,
+  senderLabel,
+  senderRepLevel,
 }: {
   message: MessageRow;
   isMine: boolean;
+  senderLabel: string;
+  senderRepLevel: string | null;
 }) {
   const { colors } = useThemeColors();
   const highlightId = parseHighlightIdFromBody(message.body);
@@ -79,6 +93,18 @@ const MessageBubble = React.memo(function MessageBubble({
 
   return (
     <View style={[styles.bubbleWrap, isMine ? styles.bubbleWrapRight : styles.bubbleWrapLeft]}>
+      <View style={styles.senderRow}>
+        <Text
+          style={[
+            styles.senderName,
+            { color: isMine ? colors.textMuted : colors.text },
+          ]}
+          numberOfLines={1}
+        >
+          {senderLabel}
+        </Text>
+        <TierBadge tierName={senderRepLevel} size="sm" />
+      </View>
       <View
         style={[
           styles.bubble,
@@ -121,7 +147,9 @@ export default function ChatScreen() {
   const { colors } = useThemeColors();
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [senderMetaByUserId, setSenderMetaByUserId] = useState<Record<string, SenderMeta>>({});
   const [loading, setLoading] = useState(true);
+  const [messagesLoadError, setMessagesLoadError] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -143,19 +171,41 @@ export default function ChatScreen() {
 
   const id = conversationId ?? '';
 
+  const hydrateSenderProfiles = useCallback(async (rows: MessageRow[]) => {
+    const ids = [...new Set(rows.map((m) => m.sender_id))];
+    if (ids.length === 0) return;
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('user_id, name, username, rep_level')
+      .in('user_id', ids);
+    if (error) return;
+    const patch: Record<string, SenderMeta> = {};
+    (data || []).forEach((p: { user_id: string; name: string | null; username: string | null; rep_level?: string | null }) => {
+      patch[p.user_id] = {
+        name: p.name,
+        username: p.username,
+        rep_level: normalizeCosignTierName(p.rep_level ?? null),
+      };
+    });
+    setSenderMetaByUserId((prev) => ({ ...prev, ...patch }));
+  }, []);
+
   const loadMessages = useCallback(async () => {
     if (!id) return;
     setLoading(true);
+    setMessagesLoadError(false);
     try {
       const list = await getMessages(id);
       setMessages(list);
+      await hydrateSenderProfiles(list);
     } catch (e) {
       logger.error('DM chat: load messages failed', { err: e, screen: 'chat', conversationId: id });
+      setMessagesLoadError(true);
       setMessages([]);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, hydrateSenderProfiles]);
 
   useFocusEffect(
     useCallback(() => {
@@ -182,6 +232,7 @@ export default function ChatScreen() {
             if (prev.some((m) => m.id === newRow.id)) return prev;
             return [...prev, newRow];
           });
+          void hydrateSenderProfiles([newRow]);
         }
       )
       .subscribe();
@@ -190,7 +241,7 @@ export default function ChatScreen() {
       channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [id]);
+  }, [id, hydrateSenderProfiles]);
 
   const handleSend = useCallback(async () => {
     const body = sanitizeText(input, SANITIZE_LIMITS.dmBody);
@@ -205,6 +256,7 @@ export default function ChatScreen() {
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimistic]);
+    void hydrateSenderProfiles([optimistic]);
     setSending(true);
     try {
       const sent = await sendMessage(id, user.id, body);
@@ -221,13 +273,25 @@ export default function ChatScreen() {
     } finally {
       setSending(false);
     }
-  }, [input, user?.id, id, sending]);
+  }, [input, user?.id, id, sending, hydrateSenderProfiles]);
 
   const renderItem: ListRenderItem<MessageRow> = useCallback(
-    ({ item }) => (
-      <MessageBubble message={item} isMine={item.sender_id === user?.id} />
-    ),
-    [user?.id]
+    ({ item }) => {
+      const mine = item.sender_id === user?.id;
+      const meta = senderMetaByUserId[item.sender_id];
+      const label = mine
+        ? 'You'
+        : meta?.name?.trim() || meta?.username?.trim() || 'User';
+      return (
+        <MessageBubble
+          message={item}
+          isMine={mine}
+          senderLabel={label}
+          senderRepLevel={meta?.rep_level ?? null}
+        />
+      );
+    },
+    [user?.id, senderMetaByUserId]
   );
 
   if (!id) {
@@ -273,11 +337,17 @@ export default function ChatScreen() {
                   Loading…
                 </Text>
               </View>
+            ) : messagesLoadError ? (
+              <View style={styles.centered}>
+                <ErrorState onRetry={() => void loadMessages()} />
+              </View>
             ) : (
               <View style={styles.centered}>
-                <Text style={[Typography.muted, { color: colors.textMuted }]}>
-                  No messages yet. Say hi!
-                </Text>
+                <EmptyState
+                  title="No messages yet"
+                  subtitle="Say hi and get the conversation started."
+                  icon="bubble.left.and.bubble.right.fill"
+                />
               </View>
             )
           }
@@ -335,6 +405,18 @@ const styles = StyleSheet.create({
   },
   bubbleWrapLeft: { alignItems: 'flex-start' },
   bubbleWrapRight: { alignItems: 'flex-end' },
+  senderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+    maxWidth: '100%',
+  },
+  senderName: {
+    ...Typography.mutedSmall,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
   bubble: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,

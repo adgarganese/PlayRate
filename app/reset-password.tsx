@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/TextInput';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
+import { UI_GENERIC } from '@/lib/user-facing-errors';
+import { AUTH_PASSWORD_MIN_LENGTH, validateSignUpPassword } from '@/lib/auth-validation';
 
 export default function ResetPasswordScreen() {
   const params = useLocalSearchParams();
@@ -83,8 +85,9 @@ export default function ResetPasswordScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+    const pwdErr = validateSignUpPassword(password);
+    if (pwdErr) {
+      Alert.alert('Error', pwdErr);
       return;
     }
 
@@ -101,7 +104,7 @@ export default function ResetPasswordScreen() {
     setLoading(false);
 
     if (updateError) {
-      let friendlyMessage = updateError.message;
+      let friendlyMessage = UI_GENERIC;
       if (updateError.message.includes('expired') || updateError.message.includes('invalid')) {
         friendlyMessage = 'This reset link has expired. Please request a new one.';
       }
@@ -158,7 +161,7 @@ export default function ResetPasswordScreen() {
         <View style={styles.form}>
           <TextInput
             label="New Password"
-            placeholder="Enter new password (min 6 characters)"
+            placeholder={`New password (min ${AUTH_PASSWORD_MIN_LENGTH} chars, letter + number)`}
             value={password}
             onChangeText={setPassword}
             secureTextEntry

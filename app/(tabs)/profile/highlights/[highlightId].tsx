@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, Dimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Video, ResizeMode } from 'expo-av';
+import { useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
+import { HighlightDetailVideo } from '@/components/HighlightDetailVideo';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import { resolveMediaUrlForPlayback } from '@/lib/storage-media-url';
@@ -14,19 +15,30 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { hapticLight } from '@/lib/haptics';
+import { toggleHighlightLike } from '@/lib/highlights';
+import { logger } from '@/lib/logger';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 
 /** In-app video playback (no external browser). How to verify on iPhone TestFlight: open a video highlight → plays inside the app. */
-function HighlightVideo({ uri, thumbnailUri }: { uri: string; thumbnailUri: string | null }) {
+function HighlightVideo({
+  uri,
+  thumbnailUri,
+  isActive,
+}: {
+  uri: string;
+  thumbnailUri: string | null;
+  isActive: boolean;
+}) {
   if (!uri) {
     return <Image source={{ uri: thumbnailUri || undefined }} style={StyleSheet.absoluteFill} contentFit="contain" />;
   }
   return (
-    <Video
-      source={{ uri }}
-      style={StyleSheet.absoluteFill}
-      useNativeControls
-      resizeMode={ResizeMode.CONTAIN}
-      isLooping
+    <HighlightDetailVideo
+      uri={uri}
+      posterUri={thumbnailUri}
+      contentFit="contain"
+      isActive={isActive}
     />
   );
 }
@@ -49,18 +61,21 @@ type Highlight = {
 export default function HighlightDetailScreen() {
   const { highlightId } = useLocalSearchParams<{ highlightId: string }>();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { user } = useAuth();
   const { colors } = useThemeColors();
   const [highlight, setHighlight] = useState<Highlight | null>(null);
   const [playbackUri, setPlaybackUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [highlightLoadError, setHighlightLoadError] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [togglingLike, setTogglingLike] = useState(false);
 
-  const loadHighlight = async () => {
+  const loadHighlight = useCallback(async () => {
     if (!highlightId) return;
     setLoading(true);
+    setHighlightLoadError(false);
     try {
       const { data: h, error } = await supabase
         .from('highlights')
@@ -68,9 +83,18 @@ export default function HighlightDetailScreen() {
         .eq('id', highlightId)
         .maybeSingle();
 
-      if (error || !h) {
+      if (error) {
+        logger.error('[profile-highlight-detail] primary fetch failed', { err: error, highlightId });
         setHighlight(null);
         setPlaybackUri(null);
+        setHighlightLoadError(true);
+        setLoading(false);
+        return;
+      }
+      if (!h) {
+        setHighlight(null);
+        setPlaybackUri(null);
+        setHighlightLoadError(false);
         setLoading(false);
         return;
       }
@@ -113,18 +137,18 @@ export default function HighlightDetailScreen() {
         setPlaybackUri(h.media_url);
       }
     } catch (err) {
-      if (__DEV__) console.warn('[profile-highlight] load', err);
+      logger.error('[profile-highlight-detail] load threw', { err, highlightId });
       setHighlight(null);
       setPlaybackUri(null);
+      setHighlightLoadError(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [highlightId, user]);
 
   useEffect(() => {
-    loadHighlight();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightId]);
+    void loadHighlight();
+  }, [loadHighlight]);
 
   const toggleLike = async () => {
     if (!user || !highlightId || togglingLike) return;
@@ -136,21 +160,22 @@ export default function HighlightDetailScreen() {
     setTogglingLike(true);
 
     try {
-      if (wasLiked) {
-        await supabase
-          .from('highlight_likes')
-          .delete()
-          .eq('highlight_id', highlightId)
-          .eq('user_id', user.id);
+      const { success, newLikedState } = await toggleHighlightLike(
+        highlightId,
+        user.id,
+        wasLiked
+      );
+      if (!success) {
+        setIsLiked(wasLiked);
+        setLikeCount((c) => c + (wasLiked ? 1 : -1));
+        Alert.alert('Error', 'Could not update like.');
       } else {
-        await supabase
-          .from('highlight_likes')
-          .insert({ highlight_id: highlightId, user_id: user.id });
+        setIsLiked(newLikedState);
       }
     } catch (error) {
       if (__DEV__) console.warn('[profile-highlight:toggleLike]', error);
       setIsLiked(wasLiked);
-      setLikeCount((c) => c - (wasLiked ? -1 : 1));
+      setLikeCount((c) => c + (wasLiked ? 1 : -1));
       Alert.alert('Error', 'Could not update like.');
     } finally {
       setTogglingLike(false);
@@ -162,8 +187,20 @@ export default function HighlightDetailScreen() {
   if (loading) {
     return (
       <Screen>
+        <Header title="Highlight" showBack={false} />
         <View style={[styles.center, { flex: 1 }]}>
           <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (highlightLoadError) {
+    return (
+      <Screen>
+        <Header title="Highlight" showBack={false} />
+        <View style={[styles.center, { flex: 1 }]}>
+          <ErrorState onRetry={() => void loadHighlight()} />
         </View>
       </Screen>
     );
@@ -174,7 +211,13 @@ export default function HighlightDetailScreen() {
       <Screen>
         <Header title="Highlight" showBack={false} />
         <View style={[styles.center, { flex: 1 }]}>
-          <Text style={[styles.errorText, { color: colors.textMuted }]}>Highlight not found</Text>
+          <EmptyState
+            title="This highlight isn't available"
+            subtitle="It may have been deleted or you may not have access."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+            icon="play.rectangle.fill"
+          />
         </View>
       </Screen>
     );
@@ -200,7 +243,11 @@ export default function HighlightDetailScreen() {
 
         <View style={[styles.mediaContainer, { width: screenWidth - Spacing.lg * 2, aspectRatio: 1 }]}>
           {highlight.media_type === 'video' ? (
-            <HighlightVideo uri={playbackUri || highlight.media_url} thumbnailUri={highlight.thumbnail_url || highlight.media_url} />
+            <HighlightVideo
+              uri={playbackUri || highlight.media_url}
+              thumbnailUri={highlight.thumbnail_url}
+              isActive={isFocused}
+            />
           ) : (
             <Image source={{ uri: playbackUri || highlight.media_url }} style={styles.image} contentFit="contain" />
           )}

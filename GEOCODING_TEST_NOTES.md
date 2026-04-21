@@ -21,14 +21,15 @@ The `geocodeAddress()` function in `lib/geocoding.ts` has been implemented with 
 ## Important Note
 
 ⚠️ **API Key Configuration:**
-The function uses `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`, but calls the **Geocoding API**. These are different APIs:
+`lib/geocoding.ts` uses `googleGeocodingApiKey` from `lib/config.ts`:
 
-- **Google Places API** - Used for autocomplete/search (used in `find.tsx`)
-- **Google Geocoding API** - Used for address → coordinates conversion
+- **`EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY`** — if set, used for Geocoding API only (tighter key restrictions).
+- **Otherwise** falls back to **`EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`** — that key must have **Geocoding API** enabled in Google Cloud as well.
 
-**Options:**
-1. **Same API key can work** if both APIs are enabled in Google Cloud Console
-2. **Or use separate key** by adding `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY` to config
+**Places vs Geocoding:**
+
+- **Places API** — autocomplete + place details on Find Courts (`find.tsx`).
+- **Geocoding API** — address → lat/lng when adding a court.
 
 ## Testing the Function
 

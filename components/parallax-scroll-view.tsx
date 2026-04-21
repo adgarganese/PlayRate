@@ -10,6 +10,7 @@ import Animated, {
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeColor } from '@/hooks/use-theme-color';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 const HEADER_HEIGHT = 250;
 
@@ -25,6 +26,7 @@ export default function ParallaxScrollView({
 }: Props) {
   const backgroundColor = useThemeColor({}, 'background');
   const colorScheme = useColorScheme() ?? 'light';
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollOffset = useScrollOffset(scrollRef);
   const headerAnimatedStyle = useAnimatedStyle(() => {
@@ -48,7 +50,9 @@ export default function ParallaxScrollView({
     <Animated.ScrollView
       ref={scrollRef}
       style={{ backgroundColor, flex: 1 }}
-      scrollEventThrottle={16}>
+      contentContainerStyle={{ paddingBottom: scrollBottomPadding }}
+      scrollEventThrottle={16}
+    >
       <Animated.View
         style={[
           styles.header,

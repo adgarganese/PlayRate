@@ -5,8 +5,20 @@ import { IconSymbol } from './icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
 
+function borderColorAtOpacity(borderHex: string, opacity: number): string {
+  const hex = borderHex.replace('#', '');
+  if (hex.length !== 6) return borderHex;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return borderHex;
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+}
+
 type HeaderProps = {
   title: string;
+  /** When set, replaces the default title + subtitle block. */
+  customTitle?: React.ReactNode;
   subtitle?: string;
   /** When true, subtitle uses logo-tagline typography (fontSize 14, fontWeight 500, letterSpacing 0.5, marginTop Spacing.sm). */
   subtitleTagline?: boolean;
@@ -44,7 +56,7 @@ export function Header({
       onPress={rightIcon.onPress}
       accessibilityLabel={rightIcon.accessibilityLabel || 'Action'}
       accessibilityRole="button"
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
     >
       <IconSymbol
         name={rightIcon.name as React.ComponentProps<typeof IconSymbol>['name']}
@@ -54,8 +66,13 @@ export function Header({
     </TouchableOpacity>
   ) : null);
 
+  const headerChrome = {
+    borderBottomWidth: StyleSheet.hairlineWidth * 2,
+    borderBottomColor: borderColorAtOpacity(colors.border, 0.5),
+  };
+
   return (
-    <View style={[styles.container, style]}>
+    <View style={[styles.container, headerChrome, style]}>
       <View style={styles.leftSection}>
         {showBack && (
           <TouchableOpacity
@@ -63,7 +80,7 @@ export function Header({
             onPress={handleBack}
             accessibilityLabel="Go back"
             accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           >
             <IconSymbol
               name="chevron.left"
@@ -75,7 +92,10 @@ export function Header({
         <View style={styles.titleContainer}>
           {customTitle ?? (
             <>
-              <Text style={[Typography.h1, styles.title, { color: colors.text }]}>
+              <Text
+                style={[Typography.h2, styles.title, { color: colors.text }]}
+                accessibilityRole="header"
+              >
                 {title}
               </Text>
               {subtitle && (
@@ -113,8 +133,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backButton: {
-    padding: Spacing.sm,
+    width: 44,
+    height: 44,
     marginRight: Spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   titleContainer: {
     flex: 1,
@@ -134,7 +157,10 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   rightButton: {
-    padding: Spacing.sm,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: -Spacing.sm,
   },
 });

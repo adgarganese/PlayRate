@@ -3,6 +3,10 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Radius } from '@/constants/theme';
 import { SkeletonPlaceholder } from '@/components/ui/SkeletonPlaceholder';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
+import {
+  useScrollContentBottomPadding,
+  SCROLL_EXTRA_FOR_FLOATING_FAB,
+} from '@/hooks/use-scroll-bottom-padding';
 
 const FEED_MEDIA_MIN_HEIGHT_PX = 264;
 const FEED_MEDIA_MAX_HEIGHT_PX = 508;
@@ -53,10 +57,14 @@ function FeedCardSkeleton({ mediaHeight }: { mediaHeight: number }) {
 
 export function HighlightFeedSkeleton() {
   const mediaHeight = computeFeedMediaHeightPx();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   return (
     <SkeletonPlaceholder>
       <ScrollView
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: scrollBottomPadding + SCROLL_EXTRA_FOR_FLOATING_FAB },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -71,7 +79,6 @@ export function HighlightFeedSkeleton() {
 const styles = StyleSheet.create({
   list: {
     padding: Spacing.lg,
-    paddingBottom: Spacing.xxl + 64,
   },
   card: {
     borderRadius: Radius.md,

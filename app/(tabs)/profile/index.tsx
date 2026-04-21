@@ -26,6 +26,7 @@ import { Spacing, Typography, Radius } from '@/constants/theme';
 import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
 import { getPlayStylesForSport, isSportEnabled } from '@/constants/sport-definitions';
 import { logger } from '@/lib/logger';
+import { track } from '@/lib/analytics';
 import { UI_GENERIC } from '@/lib/user-facing-errors';
 import { ProfileSkeleton } from '@/components/skeletons/ProfileSkeleton';
 
@@ -221,6 +222,16 @@ export default function ProfileScreen() {
       await supabase.from('sport_profiles').upsert({ user_id: user.id, sport_id: cp.active_sport_id, play_style: playStyleValue, updated_at: new Date().toISOString() }, { onConflict: 'user_id,sport_id' });
     }
     if (playStyleValue) await supabase.from('profiles').update({ play_style: playStyleValue }).eq('user_id', user.id);
+
+    const fieldsChanged: string[] = [];
+    if (nameClean !== (profile.name ?? null)) fieldsChanged.push('name');
+    if (bioClean !== (profile.bio ?? null)) fieldsChanged.push('bio');
+    const prevPlay = profile.play_style ?? null;
+    if (playStyleValue !== prevPlay) fieldsChanged.push('play_style');
+    if (fieldsChanged.length > 0) {
+      track('profile_updated', { fields_changed: fieldsChanged });
+    }
+
     setSaving(false);
     Alert.alert('Saved', 'Your profile has been updated!');
     setEditing(false);

@@ -94,6 +94,21 @@ export const AccentColors = {
   goldSoft: '#F5E8C7',      // Soft gold - lighter tint for subtle highlights (borders, backgrounds)
   success: '#22C55E',       // Success green - confirmations, success states
   successSoft: '#DCFCE7',   // Soft success - light tint for backgrounds/borders (or use success + opacity)
+  /** Vibrant pink — likes, hearts, active tab tint */
+  accentPink: '#FF2D55',
+  /** Bright silver — premium CTAs, FABs, featured tints, illustrations (replaces electric indigo). */
+  accentElectric: '#A8B2C1',
+  /** Darker silver for pressed / gradient end. */
+  accentSilverPressed: '#8892A1',
+  /** Light silver for subtle fills and backgrounds. */
+  accentSilverLight: '#C5CDD9',
+  /** Metallic gradient (featured cards, empty-state glows). */
+  accentGradientStart: '#B8C2D1',
+  accentGradientEnd: '#8892A1',
+  /** Deeper silver — second stop on filled CTAs so white labels stay readable. */
+  accentGradientDeep: '#6E798A',
+  /** Warm orange — check-in, activity energy */
+  accentOrange: '#FF6B00',
 } as const;
 
 /** Single gold color for logo/favorite/check-in; use this instead of hardcoding hex. */
@@ -164,41 +179,51 @@ export const Radius = {
 // ============================================================================
 export const Typography = {
   h1: {
+    fontFamily: 'BarlowCondensed-ExtraBoldItalic',
     fontSize: 32,
     fontWeight: 'bold' as TextStyle['fontWeight'],
     lineHeight: 40,
   },
   h2: {
+    fontFamily: 'BarlowCondensed-Bold',
     fontSize: 24,
     fontWeight: 'bold' as TextStyle['fontWeight'],
     lineHeight: 32,
   },
   h3: {
+    fontFamily: 'Rajdhani-Medium',
     fontSize: 18,
     fontWeight: '600' as TextStyle['fontWeight'],
     lineHeight: 24,
   },
   body: {
+    fontFamily: 'Rajdhani-Regular',
     fontSize: 16,
     fontWeight: '400' as TextStyle['fontWeight'],
     lineHeight: 24,
   },
   bodyBold: {
+    fontFamily: 'Rajdhani-Medium',
     fontSize: 16,
     fontWeight: '600' as TextStyle['fontWeight'],
     lineHeight: 24,
   },
   muted: {
+    fontFamily: 'Rajdhani-Regular',
     fontSize: 14,
     fontWeight: '400' as TextStyle['fontWeight'],
     lineHeight: 20,
   },
   mutedSmall: {
+    fontFamily: 'Rajdhani-Regular',
     fontSize: 12,
     fontWeight: '400' as TextStyle['fontWeight'],
     lineHeight: 16,
   },
 } as const;
+
+/** Dark-mode card shadow tint — subtle cyan glow (not pure black). */
+const DARK_SHADOW_COLOR = 'rgba(56, 189, 248, 0.08)' as const;
 
 // ============================================================================
 // SHADOWS (Platform-specific)
@@ -217,6 +242,18 @@ export const Shadows = {
       },
       default: {},
     }),
+    medium: Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.075,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 3,
+      },
+      default: {},
+    }),
     elevated: Platform.select({
       ios: {
         shadowColor: '#000',
@@ -229,29 +266,65 @@ export const Shadows = {
       },
       default: {},
     }),
+    featuredGlow: Platform.select({
+      ios: {
+        shadowColor: AccentColors.accentElectric,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.22,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 6,
+      },
+      default: {},
+    }),
   },
   dark: {
     card: Platform.select({
       ios: {
-        shadowColor: AccentColors.cyanGlow,
+        shadowColor: DARK_SHADOW_COLOR,
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
+        shadowOpacity: 1,
+        shadowRadius: 10,
       },
       android: {
         elevation: 2,
       },
       default: {},
     }),
-    elevated: Platform.select({
+    medium: Platform.select({
       ios: {
-        shadowColor: AccentColors.cyanGlow,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
+        shadowColor: DARK_SHADOW_COLOR,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 1,
         shadowRadius: 12,
       },
       android: {
+        elevation: 3,
+      },
+      default: {},
+    }),
+    elevated: Platform.select({
+      ios: {
+        shadowColor: DARK_SHADOW_COLOR,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 1,
+        shadowRadius: 14,
+      },
+      android: {
         elevation: 4,
+      },
+      default: {},
+    }),
+    featuredGlow: Platform.select({
+      ios: {
+        shadowColor: AccentColors.accentPink,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35,
+        shadowRadius: 18,
+      },
+      android: {
+        elevation: 6,
       },
       default: {},
     }),

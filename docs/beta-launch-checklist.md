@@ -137,22 +137,38 @@ Beta uses **manual EAS builds** only (no CI). Run these steps when you want to s
 
 ### Step 1: Set environment variables for beta builds
 
-Env vars must be available to the EAS build in the cloud. Use **one** of these approaches (secrets are preferred so keys stay out of the repo).
+Env vars must be available to the EAS build in the cloud. Use **one** of these approaches (EAS environment variables are preferred so keys stay out of the repo).
 
-**Option A – EAS secrets (recommended)**
+**Option A – EAS environment variables (recommended)**
 
-Secrets are encrypted and injected as env vars during the build. Set them once per project:
+Use [`eas env:create`](https://docs.expo.dev/eas/environment-variables/manage/) per **environment** (`preview`, `production`, etc.). Choose **visibility** carefully:
+
+- **`EXPO_PUBLIC_SUPABASE_URL`** → **`sensitive`**. The URL is embedded in the client bundle anyway; `sensitive` (not `secret`) lets it resolve locally and appear in `eas env:pull` output, while still masking it in logs where appropriate.
+- **`EXPO_PUBLIC_SUPABASE_ANON_KEY`** → **`secret`**. Treat the anon key as a credential.
+
+Example (repeat `--environment` for each env you use, e.g. `preview` and `production`):
 
 ```bash
-eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://YOUR_PROJECT.supabase.co" --scope project
-eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "YOUR_ANON_KEY" --scope project
-eas secret:create --name POSTHOG_API_KEY --value "phc_..." --scope project
-eas secret:create --name EXPO_PUBLIC_SENTRY_DSN --value "https://...@sentry.io/..." --scope project
-eas secret:create --name EXPO_PUBLIC_SENTRY_ENVIRONMENT --value "beta" --scope project
-eas secret:create --name EXPO_PUBLIC_SUPPORT_EMAIL --value "support@yourdomain.com" --scope project
+eas env:create --name EXPO_PUBLIC_SUPABASE_URL --value https://nhqhkwvmludnsblimjeu.supabase.co--environment preview --visibility sensitive
+eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value sb_publishable_AoSr87sbmoHs55ihCAkCBQ_v5nLyH83--environment preview --visibility secret
+eas env:create --name EXPO_PUBLIC_POSTHOG_API_KEY --value "phc_..." --environment preview --visibility secret
+eas env:create --name EXPO_PUBLIC_SENTRY_DSN --value "https://...@sentry.io/..." --environment preview --visibility secret
+eas env:create --name EXPO_PUBLIC_SENTRY_ENVIRONMENT --value "beta" --environment preview --visibility plaintext
+eas env:create --name EXPO_PUBLIC_SUPPORT_EMAIL --value "support@yourdomain.com" --environment preview --visibility plaintext
 ```
 
-List secrets: `eas secret:list`. Update: delete and re-create with `eas secret:create`, or use the Expo dashboard.
+List: `eas env:list --environment preview`. Update: `eas env:update` or the Expo dashboard (**Project settings → Environment variables**).
+
+**If `EXPO_PUBLIC_SUPABASE_URL` already exists as `secret`**, switch it to `sensitive` (run once per environment):
+
+```bash
+eas env:update --variable-name EXPO_PUBLIC_SUPABASE_URL --variable-environment preview --visibility sensitive
+eas env:update --variable-name EXPO_PUBLIC_SUPABASE_URL --variable-environment production --visibility sensitive
+```
+
+(Re-enter the same URL if the CLI prompts for a value.)
+
+**Legacy `eas secret:create`** still works for project-scoped secrets, but prefer **`eas env:create`** with explicit visibility and environments for new setups.
 
 **Option B – Profile env in `eas.json`**
 
@@ -173,13 +189,13 @@ You can put non-sensitive values in `eas.json` under the build profile’s `env`
 }
 ```
 
-**Do not** put Supabase keys, PostHog key, or Sentry DSN in `eas.json` if the repo is shared—use EAS secrets for those.
+**Do not** put Supabase keys, PostHog key, or Sentry DSN in `eas.json` if the repo is shared—use EAS environment variables for those.
 
-**Expo docs:** [Environment variables and secrets](https://docs.expo.dev/build-reference/variables/).
+**Expo docs:** [Environment variables in EAS](https://docs.expo.dev/eas/environment-variables/manage/).
 
 ### Step 2: Bump version (optional)
 
-- Update `version` in `app.json` (e.g. `1.0.0` → `1.0.1`) for user-visible version.
+- Update user-visible version and store build id together: `app.json` (`expo.version`, `expo.runtimeVersion`, `ios.buildNumber`, `android.versionCode`), `package.json`, native `ios/PlayRate/Info.plist`, `ios/PlayRate.xcodeproj/project.pbxproj` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`), and any fallbacks in `lib/` (e.g. `feedback.ts`, `sentry.ts`).
 - EAS bumps build numbers automatically; you can override in the profile if needed.
 
 ### Step 3: Run the build (manual)

@@ -1,5 +1,5 @@
 import { useState, useImperativeHandle, forwardRef } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Radius, Typography } from '@/constants/theme';
 
@@ -28,7 +28,6 @@ const PhoneInputComponent = forwardRef<PhoneInputRef, PhoneInputProps>(({
 }, ref) => {
   const { colors } = useThemeColors();
   const [countryCode] = useState('+1');
-  const [showCountryPicker, setShowCountryPicker] = useState(false);
 
   // Normalize phone number - remove non-numeric characters except +
   const handlePhoneChange = (text: string) => {
@@ -61,24 +60,30 @@ const PhoneInputComponent = forwardRef<PhoneInputRef, PhoneInputProps>(({
 
   return (
     <View>
-      <Text style={[styles.label, { color: colors.text }]}>Phone Number</Text>
+      <Text
+        style={[styles.label, { color: colors.text }]}
+        accessible={false}
+        importantForAccessibility="no"
+      >
+        Phone Number
+      </Text>
       <View style={[styles.container, { borderColor: error ? '#FF0000' : colors.border }]}>
-        <TouchableOpacity
+        <View
           style={[
             styles.countryCodeButton,
-            { 
+            {
               backgroundColor: colors.surfaceAlt,
               borderRightWidth: 1,
               borderRightColor: colors.border,
-            }
+            },
           ]}
-          onPress={() => setShowCountryPicker(!showCountryPicker)}
-          disabled={!editable}
+          accessibilityRole="text"
+          accessibilityLabel="Country code, United States plus 1"
         >
           <Text style={[styles.countryCodeText, { color: colors.text }]}>
             {COUNTRY_CODES.find(c => c.code === countryCode)?.flag} {countryCode}
           </Text>
-        </TouchableOpacity>
+        </View>
         <TextInput
           style={[styles.input, { color: colors.text }]}
           value={displayValue}
@@ -88,6 +93,7 @@ const PhoneInputComponent = forwardRef<PhoneInputRef, PhoneInputProps>(({
           keyboardType="phone-pad"
           maxLength={14} // (XXX) XXX-XXXX format
           editable={editable}
+          accessibilityLabel="Phone number"
         />
       </View>
       {error && (

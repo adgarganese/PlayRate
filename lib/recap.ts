@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { getCosignProgressToNextTier, normalizeCosignTierName } from './tiers';
+import { createInAppNotification } from './create-in-app-notification';
 
 export const COSIGN_ATTRIBUTES = [
   'shooting',
@@ -65,8 +67,6 @@ export function attributeNameToSlug(name: string): CosignAttribute | null {
   return bySubstring ? bySubstring[0] : null;
 }
 
-const REP_LEVEL_THRESHOLDS = [0, 5, 15, 30, 50, 80] as const; // Level 1..6
-
 export type RecapEligibility = {
   eligible: boolean;
   error?: string;
@@ -124,6 +124,7 @@ export type RecapParticipant = {
   name: string | null;
   username: string | null;
   avatar_url: string | null;
+  rep_level: string | null;
 };
 
 /**
@@ -145,12 +146,14 @@ export async function fetchRecapParticipants(
   const userIds = rows.map((r: { user_id: string }) => r.user_id);
   const { data: profiles } = await supabase
     .from('profiles')
-    .select('user_id, name, username, avatar_url')
+    .select('user_id, name, username, avatar_url, rep_level')
     .in('user_id', userIds);
 
   if (!profiles?.length) return [];
 
-  const byId = new Map(profiles.map((p: RecapParticipant) => [p.user_id, p]));
+  const byId = new Map(
+    (profiles as RecapParticipant[]).map((p) => [p.user_id, p])
+  );
   return userIds.map((id) => byId.get(id)!).filter(Boolean);
 }
 
@@ -190,12 +193,30 @@ export async function submitCosign(
     return { success: false, error: error.message || 'Failed to add cosign.' };
   }
 
+  const { data: actor } = await supabase
+    .from('profiles')
+    .select('name, username')
+    .eq('user_id', fromUserId)
+    .maybeSingle();
+  const label = actor?.name?.trim() || actor?.username || 'Someone';
+  const attrLabel = COSIGN_ATTRIBUTE_LABELS[attribute];
+  await createInAppNotification({
+    userId: toUserId,
+    actorId: fromUserId,
+    type: 'cosign',
+    entityType: 'run',
+    entityId: runId,
+    title: `${label} cosigned you (${attrLabel})`,
+    body: trimmedNote,
+    metadata: { attribute },
+  });
+
   return { success: true };
 }
 
 export type RepRollup = {
   total_cosigns: number;
-  rep_level: number;
+  rep_level: string;
   cosigns_by_attribute: Record<string, number>;
   updated_at: string;
 };
@@ -214,45 +235,38 @@ export async function fetchRepRollups(userId: string): Promise<RepRollup | null>
 
   return {
     total_cosigns: data.total_cosigns ?? 0,
-    rep_level: data.rep_level ?? 1,
+    rep_level: normalizeCosignTierName(data.rep_level as string | number | null | undefined),
     cosigns_by_attribute: (data.cosigns_by_attribute as Record<string, number>) ?? {},
     updated_at: data.updated_at ?? '',
   };
 }
 
 /**
- * Given total cosigns, return current level and "X cosigns from Level Y" (next level).
+ * Progress toward the next named tier from a 90-day rolling cosign total.
  */
 export function getRepProgress(totalCosigns: number): {
-  level: number;
-  nextLevel: number | null;
+  tierName: string;
+  nextTierName: string | null;
   cosignsToNextLevel: number | null;
   label: string;
 } {
-  let level = 1;
-  for (let i = REP_LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
-    if (totalCosigns >= REP_LEVEL_THRESHOLDS[i]) {
-      level = i + 1;
-      break;
-    }
-  }
-
-  if (level >= 6) {
+  const p = getCosignProgressToNextTier(totalCosigns);
+  if (!p.next) {
     return {
-      level: 6,
-      nextLevel: null,
+      tierName: p.current.name,
+      nextTierName: null,
       cosignsToNextLevel: null,
-      label: "You're at max level.",
+      label: "You're at the top tier.",
     };
   }
-
-  const nextThreshold = REP_LEVEL_THRESHOLDS[level];
-  const cosignsToNextLevel = nextThreshold - totalCosigns;
-
+  const cosignsToNextLevel =
+    p.cosignsToNext != null ? Math.max(0, p.cosignsToNext) : null;
   return {
-    level,
-    nextLevel: level + 1,
+    tierName: p.current.name,
+    nextTierName: p.next.name,
     cosignsToNextLevel,
-    label: `You're ${cosignsToNextLevel} cosign${cosignsToNextLevel === 1 ? '' : 's'} from Level ${level + 1}.`,
+    label:
+      p.progressLabel ??
+      `${cosignsToNextLevel ?? 0} more cosign${(cosignsToNextLevel ?? 0) === 1 ? '' : 's'} to reach ${p.next.name}.`,
   };
 }

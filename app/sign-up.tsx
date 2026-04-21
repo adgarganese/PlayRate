@@ -12,11 +12,19 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PhoneInput, PhoneInputRef } from '@/components/PhoneInput';
 import { OtpInput } from '@/components/OtpInput';
 import { PlayRatePlaceholder } from '@/components/PlayRatePlaceholder';
+import { AuthAmbientBackdrop } from '@/components/ui/AuthAmbientBackdrop';
 import { useThemeColors } from '@/contexts/theme-context';
 import { useResendTimer } from '@/hooks/use-resend-timer';
 import { Spacing, Typography } from '@/constants/theme';
 import { FEATURE_PHONE_AUTH } from '@/constants/features';
 import { track } from '@/lib/analytics';
+import {
+  getRateLimitUserMessage,
+  isValidEmailFormat,
+  validateSignUpPassword,
+  validateUsername,
+} from '@/lib/auth-validation';
+import { UI_GENERIC } from '@/lib/user-facing-errors';
 
 type AuthMethod = 'email' | 'phone';
 
@@ -43,13 +51,20 @@ export default function SignUpScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+    const usernameErr = validateUsername(username);
+    if (usernameErr) {
+      Alert.alert('Error', usernameErr);
       return;
     }
 
-    if (username.length < 3) {
-      Alert.alert('Error', 'Username must be at least 3 characters');
+    if (!isValidEmailFormat(email)) {
+      Alert.alert('Error', 'Please enter a valid email address.');
+      return;
+    }
+
+    const pwdErr = validateSignUpPassword(password);
+    if (pwdErr) {
+      Alert.alert('Error', pwdErr);
       return;
     }
 
@@ -58,13 +73,19 @@ export default function SignUpScreen() {
     setLoading(false);
 
     if (error) {
-      let friendlyMessage = error.message;
-      if (error.message.includes('already registered')) {
-        friendlyMessage = 'This email is already registered. Try signing in instead.';
-      } else if (error.message.includes('username')) {
-        friendlyMessage = 'This username is already taken. Please choose another.';
-      } else if (error.message.includes('password')) {
-        friendlyMessage = 'Password must be at least 6 characters.';
+      const rate = getRateLimitUserMessage(
+        typeof error.message === 'string' ? error.message : ''
+      );
+      let friendlyMessage = rate ?? UI_GENERIC;
+      if (!rate && typeof error.message === 'string') {
+        if (error.message.includes('already registered')) {
+          friendlyMessage = 'This email is already registered. Try signing in instead.';
+        } else if (error.message.includes('username')) {
+          friendlyMessage = 'This username is already taken. Please choose another.';
+        } else if (error.message.toLowerCase().includes('password')) {
+          friendlyMessage =
+            'Password does not meet requirements. Use at least 8 characters with a letter and a number.';
+        }
       }
       Alert.alert('Sign Up', friendlyMessage);
     } else {
@@ -127,11 +148,10 @@ export default function SignUpScreen() {
     setLoading(false);
 
     if (error) {
-      let friendlyMessage = error.message;
-      if (error.message.includes('invalid')) {
+      const rate = getRateLimitUserMessage(error.message);
+      let friendlyMessage = rate ?? UI_GENERIC;
+      if (!rate && error.message.toLowerCase().includes('invalid')) {
         friendlyMessage = 'Please enter a valid phone number';
-      } else if (error.message.includes('rate limit')) {
-        friendlyMessage = 'Too many requests. Please wait a moment and try again.';
       }
       setPhoneError(friendlyMessage);
     } else {
@@ -158,8 +178,12 @@ export default function SignUpScreen() {
     setLoading(false);
 
     if (error) {
-      let friendlyMessage = error.message;
-      if (error.message.includes('invalid') || error.message.includes('expired')) {
+      const rate = getRateLimitUserMessage(error.message);
+      let friendlyMessage = rate ?? UI_GENERIC;
+      if (
+        !rate &&
+        (error.message.includes('invalid') || error.message.includes('expired'))
+      ) {
         friendlyMessage = 'Invalid or expired code. Please try again.';
       }
       setOtpError(friendlyMessage);
@@ -201,7 +225,12 @@ export default function SignUpScreen() {
   }, [authMethod]);
 
   return (
-    <KeyboardScreen contentContainerStyle={styles.scrollContent}>
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      <AuthAmbientBackdrop />
+      <KeyboardScreen
+        style={styles.keyboardTransparent}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.logoContainer}>
           <PlayRatePlaceholder />
         </View>
@@ -249,7 +278,7 @@ export default function SignUpScreen() {
 
               <PasswordInput
                 label="Password"
-                placeholder="Create a password (min 6 characters)"
+                placeholder="Min 8 characters, include a letter and a number"
                 value={password}
                 onChangeText={setPassword}
                 autoCapitalize="none"
@@ -261,6 +290,7 @@ export default function SignUpScreen() {
                 title="Sign Up"
                 onPress={handleEmailSignUp}
                 variant="primary"
+                primaryGradient
                 loading={loading}
                 disabled={loading}
               />
@@ -281,6 +311,7 @@ export default function SignUpScreen() {
                     title="Send Code"
                     onPress={handlePhoneSendCode}
                     variant="primary"
+                    primaryGradient
                     loading={loading}
                     disabled={loading || resendTimer.isActive}
                   />
@@ -291,7 +322,11 @@ export default function SignUpScreen() {
                     <Text style={[styles.phoneDisplayText, { color: colors.textMuted }]}>
                       Code sent to {phoneInputRef.current?.getE164Format() || phone}
                     </Text>
-                    <TouchableOpacity onPress={resetPhoneFlow}>
+                    <TouchableOpacity
+                      onPress={resetPhoneFlow}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change phone number"
+                    >
                       <Text style={[styles.changePhoneText, { color: colors.primarySmallText }]}>Change</Text>
                     </TouchableOpacity>
                   </View>
@@ -307,6 +342,13 @@ export default function SignUpScreen() {
                     style={styles.resendButton}
                     onPress={handleResendCode}
                     disabled={resendTimer.isActive || loading}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      resendTimer.isActive
+                        ? `Resend code, available in ${resendTimer.seconds} seconds`
+                        : 'Resend verification code'
+                    }
+                    accessibilityState={{ disabled: resendTimer.isActive || loading }}
                   >
                     <Text style={[
                       styles.resendText,
@@ -325,17 +367,26 @@ export default function SignUpScreen() {
           <TouchableOpacity
             style={styles.linkButton}
             onPress={() => router.back()}
+            accessibilityRole="link"
+            accessibilityLabel="Sign in, already have an account"
           >
             <Text style={[styles.linkText, { color: colors.textMuted }]}>
               Already have an account? <Text style={[styles.linkTextBold, { color: colors.primarySmallText }]}>Sign In</Text>
             </Text>
           </TouchableOpacity>
         </View>
-    </KeyboardScreen>
+      </KeyboardScreen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  keyboardTransparent: {
+    backgroundColor: 'transparent',
+  },
   scrollContent: {
     flexGrow: 1,
     paddingTop: Spacing.xl * 2,

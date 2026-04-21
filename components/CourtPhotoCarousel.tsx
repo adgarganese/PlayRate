@@ -8,6 +8,9 @@ import { Spacing, Radius } from '@/constants/theme';
 import { IconSymbol } from './ui/icon-symbol';
 import { AppText } from './ui/AppText';
 import { uploadCourtPhoto, deleteCourtPhoto, type CourtPhoto } from '@/lib/courts';
+import { logger } from '@/lib/logger';
+import { track } from '@/lib/analytics';
+import { UI_DELETE_PHOTO_FAILED, UI_UPLOAD_FAILED } from '@/lib/user-facing-errors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 /** Carousel slide width with horizontal breathing room */
@@ -71,11 +74,17 @@ export function CourtPhotoCarousel({ courtId, photos, onPhotosChange, variant = 
       }
 
       setUploadingSlot(slot);
-      await uploadCourtPhoto(courtId, user.id, slot, result.assets[0].uri);
+      const a = result.assets[0];
+      await uploadCourtPhoto(courtId, user.id, slot, a.uri, {
+        width: a.width,
+        height: a.height,
+      });
+      track('court_photo_uploaded', { court_id: courtId });
       onPhotosChange();
     } catch (error: any) {
       if (__DEV__) console.error('Error uploading photo:', error);
-      Alert.alert('Upload Failed', error.message || 'Failed to upload photo. Please try again.');
+      logger.error('[CourtPhotoCarousel] upload failed', { err: error });
+      Alert.alert('Upload Failed', UI_UPLOAD_FAILED);
     } finally {
       setUploadingSlot(null);
     }
@@ -99,8 +108,8 @@ export function CourtPhotoCarousel({ courtId, photos, onPhotosChange, variant = 
               onPhotosChange();
             } catch (error: unknown) {
               if (__DEV__) console.error('Error deleting photo:', error);
-              const message = error instanceof Error ? error.message : 'Failed to delete photo.';
-              Alert.alert('Error', message);
+              logger.error('[CourtPhotoCarousel] delete failed', { err: error });
+              Alert.alert('Error', UI_DELETE_PHOTO_FAILED);
             } finally {
               setUploadingSlot(null);
             }

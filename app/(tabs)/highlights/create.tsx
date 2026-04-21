@@ -10,9 +10,10 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import { Video, ResizeMode } from 'expo-av';
 import { Image } from 'expo-image';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import { Screen } from '@/components/ui/Screen';
@@ -23,6 +24,11 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { devError } from '@/lib/logging';
+import { logger } from '@/lib/logger';
+import { generateVideoThumbnail } from '@/lib/video-thumbnail';
+import { compressVideo, assertHighlightVideoUnderMaxBytes } from '@/lib/video-compress';
+import { HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE } from '@/lib/config';
+import { track } from '@/lib/analytics';
 import { UI_UPLOAD_FAILED } from '@/lib/user-facing-errors';
 import { prepareHighlightImageForUpload } from '@/lib/image-upload-prepare';
 import { resolveMediaUrlForPlayback } from '@/lib/storage-media-url';
@@ -36,6 +42,7 @@ import {
   type HighlightDraft,
 } from '@/lib/highlight-drafts';
 import { hapticMedium } from '@/lib/haptics';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type IconSymbolName = React.ComponentProps<typeof IconSymbol>['name'];
 
@@ -126,6 +133,53 @@ const VIDEO_MAX_DURATION_SEC = 60;
 const PICKER_QUALITY = 0.8;
 const DEFAULT_HIGHLIGHT_SPORT = 'basketball';
 
+function ComposePreviewVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer({ uri }, (p) => {
+    try {
+      p.loop = true;
+      p.play();
+    } catch {
+      /* */
+    }
+  });
+
+  useEffect(() => {
+    try {
+      player.loop = true;
+      player.play();
+    } catch {
+      /* */
+    }
+  }, [player]);
+
+  useFocusEffect(
+    useCallback(() => {
+      try {
+        player.loop = true;
+        player.play();
+      } catch {
+        /* */
+      }
+      return () => {
+        try {
+          player.pause();
+        } catch {
+          /* NativeSharedObjectNotFoundException */
+        }
+      };
+    }, [player])
+  );
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.previewMedia}
+      contentFit="cover"
+      nativeControls
+    />
+  );
+}
+
 function ComposeMediaPreview({
   localUri,
   localIsVideo,
@@ -146,14 +200,7 @@ function ComposeMediaPreview({
 
   if (localUri) {
     if (localIsVideo) {
-      return (
-        <Video
-          source={{ uri: localUri }}
-          style={styles.previewMedia}
-          useNativeControls
-          resizeMode={ResizeMode.COVER}
-        />
-      );
+      return <ComposePreviewVideo uri={localUri} />;
     }
     return (
       <Image source={{ uri: localUri }} style={styles.previewMedia} contentFit="cover" />
@@ -162,14 +209,7 @@ function ComposeMediaPreview({
 
   if (remoteDraft?.media_type === 'video') {
     if (resolvedVideoUrl) {
-      return (
-        <Video
-          source={{ uri: resolvedVideoUrl }}
-          style={styles.previewMedia}
-          useNativeControls
-          resizeMode={ResizeMode.COVER}
-        />
-      );
+      return <ComposePreviewVideo uri={resolvedVideoUrl} />;
     }
     return (
       <View style={[styles.previewMedia, styles.previewPlaceholder, { borderColor: colors.border }]}>
@@ -202,6 +242,7 @@ export default function HighlightCreateScreen() {
 
   const { user, loading } = useAuth();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const hasRedirectedRef = useRef(false);
 
   const [phase, setPhase] = useState<'pick' | 'compose'>('pick');
@@ -221,9 +262,10 @@ export default function HighlightCreateScreen() {
   const [resolvedRemoteVideo, setResolvedRemoteVideo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [compressing, setCompressing] = useState(false);
 
   const authReady = loading === false;
-  const busy = uploading || savingDraft;
+  const busy = uploading || savingDraft || compressing;
 
   const normSport = useCallback(
     () => sport.trim() || DEFAULT_HIGHLIGHT_SPORT,
@@ -434,9 +476,49 @@ export default function HighlightCreateScreen() {
         uploadUri = prepared.uri;
         fileExt = prepared.fileExt;
         contentType = prepared.contentType;
+      } else {
+        setCompressing(true);
+        try {
+          const prepared = await compressVideo(localUri);
+          assertHighlightVideoUnderMaxBytes(prepared.fileSize);
+          uploadUri = prepared.uri;
+          fileExt = 'mp4';
+          contentType = 'video/mp4';
+        } finally {
+          setCompressing(false);
+        }
       }
 
-      const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+      const stamp = Date.now();
+      const rand = Math.random().toString(36).slice(2, 10);
+      const fileName = `${user.id}/${stamp}-${rand}.${fileExt}`;
+
+      let publishedThumbUrl: string | null = null;
+      if (localIsVideo) {
+        try {
+          const thumbLocal = await generateVideoThumbnail(uploadUri);
+          if (thumbLocal) {
+            const thumbRes = await fetch(thumbLocal);
+            if (thumbRes.ok) {
+              const thumbBuf = await thumbRes.arrayBuffer();
+              const thumbName = `${user.id}/${stamp}-thumb.jpg`;
+              const { error: thumbErr } = await supabase.storage
+                .from(STORAGE_BUCKET_HIGHLIGHTS)
+                .upload(thumbName, thumbBuf, { contentType: 'image/jpeg', upsert: false });
+              if (thumbErr) {
+                logger.warn('[HighlightCreate] video thumbnail upload failed', { err: thumbErr });
+              } else {
+                const { data: pt } = supabase.storage
+                  .from(STORAGE_BUCKET_HIGHLIGHTS)
+                  .getPublicUrl(thumbName);
+                publishedThumbUrl = pt.publicUrl;
+              }
+            }
+          }
+        } catch (e) {
+          logger.warn('[HighlightCreate] video thumbnail pipeline failed', { err: e });
+        }
+      }
 
       const { data: { session } } = await supabase.auth.getSession();
       if (__DEV__ && !session) console.warn('[HighlightCreate] no session at upload');
@@ -460,7 +542,7 @@ export default function HighlightCreateScreen() {
           sport: normSport(),
           media_type: localIsVideo ? 'video' : 'image',
           media_url: publicUrl,
-          thumbnail_url: localIsVideo ? null : publicUrl,
+          thumbnail_url: localIsVideo ? publishedThumbUrl : publicUrl,
           caption: normCaption(),
           is_public: true,
         })
@@ -468,11 +550,21 @@ export default function HighlightCreateScreen() {
         .single();
 
       if (insertError) throw insertError;
+      track('highlight_posted', {
+        sport: normSport(),
+        media_type: localIsVideo ? 'video' : 'image',
+        was_draft: false,
+      });
       hapticMedium();
       router.replace(TARGET_HIGHLIGHTS);
     } catch (err: unknown) {
-      devError('HighlightCreate', 'Upload error:', err);
-      Alert.alert('Upload Failed', UI_UPLOAD_FAILED);
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE) {
+        Alert.alert('Video too large', HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE);
+      } else {
+        devError('HighlightCreate', 'Upload error:', err);
+        Alert.alert('Upload Failed', UI_UPLOAD_FAILED);
+      }
     } finally {
       setUploading(false);
     }
@@ -489,21 +581,21 @@ export default function HighlightCreateScreen() {
       if (loadedDraftId) {
         if (localUri) {
           const mt = localIsVideo ? 'video' : 'image';
-          const url = await uploadDraftMedia(
+          const { mediaUrl, thumbnailUrl } = await uploadDraftMedia(
             user.id,
             loadedDraftId,
             localUri,
             mt,
-            localImageDims
+            localImageDims,
+            { onCompressionState: setCompressing }
           );
-          const thumb = localIsVideo ? null : url;
           const updated = await saveDraft(user.id, {
             id: loadedDraftId,
             sport: normSport(),
             caption: normCaption(),
             media_type: mt,
-            media_url: url,
-            thumbnail_url: thumb,
+            media_url: mediaUrl,
+            thumbnail_url: thumbnailUrl,
           });
           setRemoteDraft(updated);
           setLocalUri(null);
@@ -526,19 +618,30 @@ export default function HighlightCreateScreen() {
           caption: normCaption(),
           media_type: mt,
         });
-        const url = await uploadDraftMedia(user.id, row.id, localUri!, mt, localImageDims);
-        const thumb = localIsVideo ? null : url;
+        const { mediaUrl, thumbnailUrl } = await uploadDraftMedia(
+          user.id,
+          row.id,
+          localUri!,
+          mt,
+          localImageDims,
+          { onCompressionState: setCompressing }
+        );
         await saveDraft(user.id, {
           id: row.id,
-          media_url: url,
-          thumbnail_url: thumb,
+          media_url: mediaUrl,
+          thumbnail_url: thumbnailUrl,
           media_type: mt,
         });
       }
       router.replace(TARGET_HIGHLIGHTS);
     } catch (err: unknown) {
-      devError('HighlightCreate', 'Save draft error:', err);
-      Alert.alert('Save Failed', UI_UPLOAD_FAILED);
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE) {
+        Alert.alert('Video too large', HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE);
+      } else {
+        devError('HighlightCreate', 'Save draft error:', err);
+        Alert.alert('Save Failed', UI_UPLOAD_FAILED);
+      }
     } finally {
       setSavingDraft(false);
     }
@@ -565,21 +668,21 @@ export default function HighlightCreateScreen() {
     try {
       if (localUri) {
         const mt = localIsVideo ? 'video' : 'image';
-        const url = await uploadDraftMedia(
+        const { mediaUrl, thumbnailUrl } = await uploadDraftMedia(
           user.id,
           loadedDraftId,
           localUri,
           mt,
-          localImageDims
+          localImageDims,
+          { onCompressionState: setCompressing }
         );
-        const thumb = localIsVideo ? null : url;
         await saveDraft(user.id, {
           id: loadedDraftId,
           sport: normSport(),
           caption: normCaption(),
           media_type: mt,
-          media_url: url,
-          thumbnail_url: thumb,
+          media_url: mediaUrl,
+          thumbnail_url: thumbnailUrl,
         });
         setLocalUri(null);
         setLocalImageDims(undefined);
@@ -602,8 +705,13 @@ export default function HighlightCreateScreen() {
       hapticMedium();
       router.replace(TARGET_HIGHLIGHTS);
     } catch (err: unknown) {
-      devError('HighlightCreate', 'Publish draft error:', err);
-      Alert.alert('Publish Failed', UI_UPLOAD_FAILED);
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE) {
+        Alert.alert('Video too large', HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE);
+      } else {
+        devError('HighlightCreate', 'Publish draft error:', err);
+        Alert.alert('Publish Failed', UI_UPLOAD_FAILED);
+      }
     } finally {
       setUploading(false);
     }
@@ -692,12 +800,12 @@ export default function HighlightCreateScreen() {
   const primaryLabel = loadedDraftId ? 'Publish' : 'Post';
   const draftButtonLabel = loadedDraftId ? 'Update Draft' : 'Save as Draft';
   const saveDraftDisabled =
-    uploading || (!loadedDraftId && !localUri?.trim());
+    uploading || compressing || (!loadedDraftId && !localUri?.trim());
 
   const composeView = (
     <ScrollView
       style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPadding + Spacing.lg }]}
       keyboardShouldPersistTaps="handled"
     >
       <View style={[styles.previewWrap, { borderColor: colors.border }]}>
@@ -742,7 +850,7 @@ export default function HighlightCreateScreen() {
         title={primaryLabel}
         onPress={loadedDraftId ? handlePublishDraft : publishNewHighlight}
         variant="primary"
-        loading={uploading}
+        loading={uploading || compressing}
         disabled={savingDraft || !canPostOrPublish}
         style={styles.primaryBtn}
       />
@@ -755,11 +863,11 @@ export default function HighlightCreateScreen() {
         style={styles.secondaryBtn}
       />
 
-      {uploading || savingDraft ? (
+      {uploading || savingDraft || compressing ? (
         <View style={styles.uploadingRow}>
           <ActivityIndicator size="small" color={colors.primary} />
           <Text style={[styles.mutedSmall, { color: colors.textMuted }]}>
-            {uploading ? 'Working…' : 'Saving…'}
+            {compressing ? 'Compressing…' : uploading ? 'Working…' : 'Saving…'}
           </Text>
         </View>
       ) : null}
@@ -833,7 +941,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.lg,
-    paddingBottom: Spacing.xxl,
   },
   lead: {
     ...Typography.body,

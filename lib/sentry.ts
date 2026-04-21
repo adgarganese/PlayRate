@@ -21,14 +21,15 @@ export function initSentry(): void {
   const appVersion =
     Application.nativeApplicationVersion ??
     Constants.expoConfig?.version ??
-    '1.0.0';
+    '1.1.0';
   Sentry.init({
     dsn: DSN,
     enabled: true,
     environment: sentryEnvironment,
     release: `${configAppName}@${appVersion}`,
     dist: Application.nativeBuildVersion ?? undefined,
-    tracesSampleRate: 0,
+    // Performance monitoring: 20% of transactions for beta; lower before wider launch if volume grows.
+    tracesSampleRate: 0.2,
     attachStacktrace: true,
     beforeSend(event) {
       event.tags = event.tags ?? {};

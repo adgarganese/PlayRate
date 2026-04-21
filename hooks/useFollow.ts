@@ -3,7 +3,9 @@ import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import { createInAppNotification } from '@/lib/create-in-app-notification';
 import { UI_FOLLOW_FAILED } from '@/lib/user-facing-errors';
+import { isRpcRateLimitError, RPC_RATE_LIMIT_USER_MESSAGE } from '@/lib/rpc-rate-limit';
 import { track } from '@/lib/analytics';
 import { useAuth } from '@/contexts/auth-context';
 import { hapticLight } from '@/lib/haptics';
@@ -119,11 +121,33 @@ export function useFollow(targetUserId: string | null | undefined) {
       });
 
       if (error) {
+        if (isRpcRateLimitError(error)) {
+          setIsFollowing(wasFollowing);
+          setFollowersCount((prev) => (prev !== null ? prev + (wasFollowing ? 1 : -1) : 0));
+          await fetchCounts();
+          Alert.alert('Slow down', RPC_RATE_LIMIT_USER_MESSAGE);
+          return;
+        }
         throw error;
       }
 
       if (!wasFollowing) {
-        track('follow_created', { target_user_id: targetUserId });
+        track('follow_added', {});
+        const { data: meProf } = await supabase
+          .from('profiles')
+          .select('name, username')
+          .eq('user_id', uid)
+          .maybeSingle();
+        const label = meProf?.name?.trim() || meProf?.username || 'Someone';
+        await createInAppNotification({
+          userId: targetUserId,
+          actorId: uid,
+          type: 'new_follower',
+          entityType: 'user',
+          entityId: uid,
+          title: `${label} started following you`,
+          body: null,
+        });
       }
 
       // Re-fetch to ensure consistency with server

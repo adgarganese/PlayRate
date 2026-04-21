@@ -17,6 +17,7 @@ export function PasswordInput({
   containerStyle,
   style,
   editable = true,
+  accessibilityLabel,
   ...props
 }: PasswordInputProps) {
   const { colors } = useThemeColors();
@@ -25,7 +26,11 @@ export function PasswordInput({
   return (
     <>
       {label && (
-        <Text style={[styles.label, { color: colors.text }]}>
+        <Text
+          style={[styles.label, { color: colors.text }]}
+          accessible={false}
+          importantForAccessibility="no"
+        >
           {label}
         </Text>
       )}
@@ -51,6 +56,7 @@ export function PasswordInput({
           placeholderTextColor={colors.textMuted}
           secureTextEntry={!showPassword}
           editable={editable}
+          accessibilityLabel={accessibilityLabel ?? label}
           {...props}
         />
         <Pressable

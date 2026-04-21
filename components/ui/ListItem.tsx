@@ -2,12 +2,15 @@ import { View, Text, TouchableOpacity, StyleSheet, ViewStyle } from 'react-nativ
 import { IconSymbol } from './icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Radius, Typography } from '@/constants/theme';
+import { TierBadge } from './TierBadge';
 
 type ListItemProps = {
   title: string;
   subtitle?: string;
   /** Optional third line below subtitle (e.g. "Basketball • Shot Creator") */
   metadataLine?: string;
+  /** `profiles.rep_level` — shows inline tier badge next to the title when ranked */
+  tierRepLevel?: string | null;
   showChevron?: boolean;
   onPress?: () => void;
   style?: ViewStyle;
@@ -19,6 +22,7 @@ export function ListItem({
   title,
   subtitle,
   metadataLine,
+  tierRepLevel,
   showChevron = false,
   onPress,
   style,
@@ -31,9 +35,14 @@ export function ListItem({
     <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.border }, style]}>
       {leftContent && <View style={styles.leftContent}>{leftContent}</View>}
       <View style={styles.textContainer}>
-        <Text style={[Typography.bodyBold, styles.title, { color: colors.text }]}>
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[Typography.bodyBold, styles.title, { color: colors.text }]} numberOfLines={1}>
+            {title}
+          </Text>
+          {tierRepLevel != null && tierRepLevel !== '' ? (
+            <TierBadge tierName={tierRepLevel} size="sm" />
+          ) : null}
+        </View>
         {subtitle && (
           <Text style={[Typography.muted, styles.subtitle, { color: colors.textMuted }]}>
             {subtitle}
@@ -83,8 +92,16 @@ const styles = StyleSheet.create({
   textContainer: {
     flex: 1,
   },
-  title: {
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     marginBottom: Spacing.xs,
+    flexWrap: 'nowrap',
+  },
+  title: {
+    flexShrink: 1,
+    marginBottom: 0,
   },
   subtitle: {
     marginTop: 0,

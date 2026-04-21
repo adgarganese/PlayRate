@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Alert, StyleSheet, TextInput as RNTextInput, Pressable } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, Alert, StyleSheet, TextInput as RNTextInput, Pressable, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '../contexts/auth-context';
@@ -19,7 +19,11 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { getPlayStylesForSport, isSportEnabled } from '@/constants/sport-definitions';
-import { getTierInfoFromCosigns } from '@/lib/tiers';
+import { getCosignProgressToNextTier, getTierInfoFromCosigns, normalizeCosignTierName } from '@/lib/tiers';
+import { TierBadge } from '@/components/ui/TierBadge';
+import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
+import { logger } from '@/lib/logger';
+import { UI_GENERIC, UI_PROFILE_LOAD_FAILED } from '@/lib/user-facing-errors';
 
 type Profile = {
   user_id: string;
@@ -43,17 +47,6 @@ function formatCount(count: number): string {
   return count.toLocaleString();
 }
 
-function formatActiveStatus(dateString: string | null): string {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return 'Active today';
-  if (diffDays <= 7) return 'Active this week';
-  return '';
-}
-
 export default function ProfileScreen() {
   const { user, loading: authLoading, signOut } = useAuth();
   const { followersCount, followingCount } = useFollow(user?.id ?? null);
@@ -72,27 +65,16 @@ export default function ProfileScreen() {
   const [customPlayStyle, setCustomPlayStyle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [cosignCount, setCosignCount] = useState(0);
-  const [checkInsCount, setCheckInsCount] = useState(0);
-  const [favoriteCourtsCount, setFavoriteCourtsCount] = useState(0);
-  const [lastActivity, setLastActivity] = useState<string | null>(null);
+  /** 90-day rolling total + tier (from `rep_rollups` when present) */
+  const [repRollup90, setRepRollup90] = useState<{ total_cosigns: number; rep_level: string } | null>(null);
+  const [tierModalVisible, setTierModalVisible] = useState(false);
+  const [checkInsCount] = useState(0);
+  const [, setFavoriteCourtsCount] = useState(0);
+  const [, setLastActivity] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (authLoading) return;
-
-    if (!user) {
-      const timer = setTimeout(() => {
-        router.replace('/sign-in');
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-
-    if (user) {
-      loadProfile();
-    }
-  }, [user, authLoading]);
-
-  const loadProfile = async () => {
-    if (!user) return;
+  const loadProfile = useCallback(async () => {
+    const uid = user?.id;
+    if (!uid) return;
 
     setLoading(true);
     try {
@@ -100,7 +82,7 @@ export default function ProfileScreen() {
       const { data, error } = await supabase
         .from('profiles')
         .select('user_id, name, username, bio, play_style, avatar_url, created_at')
-        .eq('user_id', user.id)
+        .eq('user_id', uid)
         .maybeSingle();
 
       if (error) {
@@ -111,12 +93,13 @@ export default function ProfileScreen() {
           const { data: dataWithoutAvatar, error: errorWithoutAvatar } = await supabase
             .from('profiles')
             .select('user_id, name, username, bio, created_at')
-            .eq('user_id', user.id)
+            .eq('user_id', uid)
             .maybeSingle();
 
           if (errorWithoutAvatar) {
             if (__DEV__) console.warn('[profile] load (no avatar)', errorWithoutAvatar);
-            Alert.alert('Error', `Unable to load your profile: ${errorWithoutAvatar.message}`);
+            logger.error('[profile] load failed (no avatar column path)', { err: errorWithoutAvatar });
+            Alert.alert('Error', UI_PROFILE_LOAD_FAILED);
             setLoading(false);
             return;
           }
@@ -137,7 +120,8 @@ export default function ProfileScreen() {
         } else {
           // Other errors
           if (__DEV__) console.warn('[profile] load', error);
-          Alert.alert('Error', `Unable to load your profile: ${error.message || 'Please try again.'}`);
+          logger.error('[profile] load failed', { err: error });
+          Alert.alert('Error', UI_PROFILE_LOAD_FAILED);
           setLoading(false);
           return;
         }
@@ -157,7 +141,7 @@ export default function ProfileScreen() {
       const { data: currentProfile } = await supabase
         .from('profiles')
         .select('active_sport_id')
-        .eq('user_id', user.id)
+        .eq('user_id', uid)
         .maybeSingle();
 
       let sportName: string | null = null;
@@ -181,7 +165,7 @@ export default function ProfileScreen() {
           const { data: sportProfile } = await supabase
             .from('sport_profiles')
             .select('play_style')
-            .eq('user_id', user.id)
+            .eq('user_id', uid)
             .eq('sport_id', currentProfile.active_sport_id)
             .maybeSingle();
           playStyle = sportProfile?.play_style || null;
@@ -209,49 +193,94 @@ export default function ProfileScreen() {
 
       // Load cosign count, favorite courts, last activity
       try {
-        const { data: profileWithCosign } = await supabase.from('profiles').select('cosign_count').eq('user_id', user.id).maybeSingle();
+        const { data: profileWithCosign } = await supabase.from('profiles').select('cosign_count').eq('user_id', uid).maybeSingle();
         if (profileWithCosign?.cosign_count != null) {
           setCosignCount(profileWithCosign.cosign_count);
         } else {
-          const { count } = await supabase.from('cosigns').select('*', { count: 'exact', head: true }).eq('to_user_id', user.id);
+          const { count } = await supabase.from('cosigns').select('*', { count: 'exact', head: true }).eq('to_user_id', uid);
           setCosignCount(count ?? 0);
         }
 
-        const { count: fcCount } = await supabase.from('court_follows').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+        const { data: rollupRow } = await supabase
+          .from('rep_rollups')
+          .select('total_cosigns, rep_level')
+          .eq('user_id', uid)
+          .maybeSingle();
+        if (rollupRow) {
+          setCosignCount(rollupRow.total_cosigns ?? 0);
+          setRepRollup90({
+            total_cosigns: rollupRow.total_cosigns ?? 0,
+            rep_level: normalizeCosignTierName(rollupRow.rep_level as string | null),
+          });
+        } else {
+          setRepRollup90(null);
+        }
+
+        const { count: fcCount } = await supabase.from('court_follows').select('*', { count: 'exact', head: true }).eq('user_id', uid);
         setFavoriteCourtsCount(fcCount ?? 0);
 
-        const { data: lastRating } = await supabase.from('self_ratings').select('last_updated').eq('profile_id', user.id).order('last_updated', { ascending: false }).limit(1).maybeSingle();
+        const { data: lastRating } = await supabase.from('self_ratings').select('last_updated').eq('profile_id', uid).order('last_updated', { ascending: false }).limit(1).maybeSingle();
         setLastActivity(lastRating?.last_updated ?? null);
       } catch (error) {
         if (__DEV__) console.warn('[profile:load] lastActivity', error);
       }
     } catch (err: any) {
       if (__DEV__) console.warn('[profile] load unexpected', err);
-      Alert.alert('Error', `An unexpected error occurred: ${err.message || 'Please try again.'}`);
+      logger.error('[profile] load unexpected', { err });
+      Alert.alert('Error', UI_GENERIC);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      const timer = setTimeout(() => {
+        router.replace('/sign-in');
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+
+    loadProfile();
+  }, [user, authLoading, router, loadProfile]);
 
   const handleSave = async () => {
     if (!user || !profile) return;
 
-    // Determine final play_style value
+    const nameClean = formData.name
+      ? sanitizeText(formData.name, SANITIZE_LIMITS.profileName)
+      : null;
+    const bioClean = formData.bio
+      ? sanitizeText(formData.bio, SANITIZE_LIMITS.profileBio, { multiline: true })
+      : null;
+    if (
+      (nameClean && isOffensiveContent(nameClean)) ||
+      (bioClean && isOffensiveContent(bioClean))
+    ) {
+      Alert.alert('Unable to save', 'Please adjust your name or bio and try again.');
+      return;
+    }
+
     let playStyleValue: string | null = null;
     if (formData.playStyle === PLAY_STYLE_CUSTOM) {
-      playStyleValue = customPlayStyle.trim() || null;
+      playStyleValue = sanitizeText(customPlayStyle, SANITIZE_LIMITS.playStyleCustom) || null;
     } else if (formData.playStyle) {
       playStyleValue = formData.playStyle;
     }
+    if (playStyleValue && isOffensiveContent(playStyleValue)) {
+      Alert.alert('Unable to save', 'Please adjust play style text and try again.');
+      return;
+    }
 
     setSaving(true);
-    
-    // Update global profile fields
+
     const { error: profileError } = await supabase
       .from('profiles')
       .update({
-        name: formData.name || null,
-        bio: formData.bio || null,
+        name: nameClean,
+        bio: bioClean,
       })
       .eq('user_id', user.id);
 
@@ -372,9 +401,16 @@ export default function ProfileScreen() {
               }}
             />
             <View style={styles.identityContent}>
-              <Text style={[styles.profileName, { color: colors.text }]} numberOfLines={1}>
-                {profile.name || 'Add your name'}
-              </Text>
+              <View style={styles.identityNameRow}>
+                <Text style={[styles.profileName, { color: colors.text }]} numberOfLines={1}>
+                  {profile.name || 'Add your name'}
+                </Text>
+                <TierBadge
+                  tierName={repRollup90?.rep_level ?? undefined}
+                  cosignCount90Days={repRollup90 == null ? cosignCount : undefined}
+                  size="md"
+                />
+              </View>
               <Text style={[styles.profileUsername, { color: colors.textMuted }]} numberOfLines={1}>
                 @{profile.username}
               </Text>
@@ -406,6 +442,23 @@ export default function ProfileScreen() {
               </Text>
             </Pressable>
           </View>
+
+          <Pressable
+            onPress={() => setTierModalVisible(true)}
+            style={[styles.tierTapRow, { borderBottomColor: colors.border }]}
+            accessibilityRole="button"
+            accessibilityLabel="Reputation details"
+          >
+            <View style={styles.tierTapLeft}>
+              <TierBadge
+                tierName={repRollup90?.rep_level ?? undefined}
+                cosignCount90Days={repRollup90 == null ? cosignCount : undefined}
+                size="sm"
+              />
+              <Text style={[Typography.bodyBold, { color: colors.text }]}>Reputation</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={18} color={colors.textMuted} />
+          </Pressable>
 
           {/* C) Sports snapshot: Sport chip + Primary sport • Play style */}
           {(activeSportName || (profile.play_style && !editing) || (formData.playStyle && editing)) && (
@@ -447,7 +500,7 @@ export default function ProfileScreen() {
                     <View style={[styles.statsBadge, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
                       <IconSymbol name="star.fill" size={12} color={colors.textMuted} style={styles.statsBadgeIcon} />
                       <Text style={[styles.statsBadgeText, { color: colors.textMuted }]}>
-                        {formatCount(cosignCount)} cosigns
+                        {formatCount(cosignCount)} cosigns (90d)
                       </Text>
                     </View>
                   </>
@@ -475,6 +528,7 @@ export default function ProfileScreen() {
                   value={formData.name}
                   onChangeText={(text) => setFormData({ ...formData, name: text })}
                   editable={!saving}
+                  maxLength={SANITIZE_LIMITS.profileName}
                 />
               </View>
 
@@ -488,6 +542,7 @@ export default function ProfileScreen() {
                   numberOfLines={4}
                   editable={!saving}
                   style={styles.bioInput}
+                  maxLength={SANITIZE_LIMITS.profileBio}
                 />
               </View>
 
@@ -518,18 +573,18 @@ export default function ProfileScreen() {
                   <View style={styles.customPlayStyleContainer}>
                     <RNTextInput
                       style={[styles.customPlayStyleInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-                      placeholder="Enter custom play style (max 24 chars)"
+                      placeholder={`Enter custom play style (max ${SANITIZE_LIMITS.playStyleCustom} chars)`}
                       placeholderTextColor={colors.textMuted}
                       value={customPlayStyle}
                       onChangeText={(text) => {
-                        if (text.length <= 24) {
+                        if (text.length <= SANITIZE_LIMITS.playStyleCustom) {
                           setCustomPlayStyle(text);
                         }
                       }}
                       editable={!saving}
-                      maxLength={24}
+                      maxLength={SANITIZE_LIMITS.playStyleCustom}
                     />
-                    <Text style={[styles.charCount, { color: colors.textMuted }]}>{customPlayStyle.length}/24</Text>
+                    <Text style={[styles.charCount, { color: colors.textMuted }]}>{customPlayStyle.length}/{SANITIZE_LIMITS.playStyleCustom}</Text>
                   </View>
                 )}
               </View>
@@ -629,6 +684,80 @@ export default function ProfileScreen() {
           showChevron={false}
           style={styles.signOutButton}
         />
+
+        <Modal transparent visible={tierModalVisible} animationType="fade" onRequestClose={() => setTierModalVisible(false)}>
+          <Pressable style={styles.tierModalOverlay} onPress={() => setTierModalVisible(false)}>
+            <View
+              style={[styles.tierModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              onStartShouldSetResponder={() => true}
+            >
+              {(() => {
+                const n = repRollup90?.total_cosigns ?? cosignCount;
+                const prog = getCosignProgressToNextTier(n);
+                if (prog.current.name === 'Unranked') {
+                  return (
+                    <>
+                      <Text style={[Typography.h3, { color: colors.text, marginBottom: Spacing.md }]}>Reputation</Text>
+                      <Text style={[Typography.body, { color: colors.textMuted }]}>
+                        Earn cosigns from other players to rank up. Only cosigns received in the last 90 days count
+                        toward your tier.
+                      </Text>
+                    </>
+                  );
+                }
+                const pct =
+                  prog.next != null && prog.next.minCosigns > prog.current.minCosigns
+                    ? Math.min(
+                        100,
+                        Math.max(
+                          0,
+                          ((n - prog.current.minCosigns) / (prog.next.minCosigns - prog.current.minCosigns)) * 100
+                        )
+                      )
+                    : 100;
+                return (
+                  <>
+                    <Text style={[Typography.h3, { color: colors.text, marginBottom: Spacing.md }]}>Reputation</Text>
+                    <View style={styles.tierModalBadgeRow}>
+                      <TierBadge tierName={prog.current.name} size="md" />
+                      <Text style={[Typography.bodyBold, { color: colors.text }]}>{prog.current.name}</Text>
+                    </View>
+                    <Text style={[Typography.body, { color: colors.textMuted, marginBottom: Spacing.sm }]}>
+                      {n} cosigns in the last 90 days
+                    </Text>
+                    {prog.next ? (
+                      <>
+                        <View style={[styles.tierProgressTrack, { backgroundColor: colors.surfaceAlt }]}>
+                          <View
+                            style={[
+                              styles.tierProgressFill,
+                              { width: `${pct}%`, backgroundColor: prog.current.color },
+                            ]}
+                          />
+                        </View>
+                        {prog.progressLabel ? (
+                          <Text style={[Typography.mutedSmall, { color: colors.textMuted, marginTop: Spacing.sm }]}>
+                            {prog.progressLabel}
+                          </Text>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Text style={[Typography.mutedSmall, { color: colors.textMuted }]}>
+                        You are at the top tier.
+                      </Text>
+                    )}
+                  </>
+                );
+              })()}
+              <Button
+                title="Done"
+                onPress={() => setTierModalVisible(false)}
+                variant="secondary"
+                style={{ marginTop: Spacing.lg }}
+              />
+            </View>
+          </Pressable>
+        </Modal>
     </KeyboardScreen>
   );
 }
@@ -652,9 +781,17 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.md,
     minWidth: 0,
   },
+  identityNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
+    minWidth: 0,
+  },
   profileName: {
     ...Typography.h2,
-    marginBottom: Spacing.xs,
+    flexShrink: 1,
+    marginBottom: 0,
   },
   profileUsername: {
     ...Typography.muted,
@@ -679,6 +816,45 @@ const styles = StyleSheet.create({
   socialSeparator: {
     ...Typography.muted,
     marginHorizontal: Spacing.sm,
+  },
+  tierTapRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.md,
+    marginBottom: Spacing.md,
+    borderBottomWidth: 1,
+  },
+  tierTapLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  tierModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  tierModalCard: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: Spacing.lg,
+  },
+  tierModalBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  tierProgressTrack: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  tierProgressFill: {
+    height: '100%',
+    borderRadius: 4,
   },
   sportsSection: {
     flexDirection: 'row',

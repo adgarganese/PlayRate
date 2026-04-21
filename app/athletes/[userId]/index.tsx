@@ -19,6 +19,8 @@ import { MessageButton } from '@/components/MessageButton';
 import { ProfileNavPill } from '@/components/ProfileNavPill';
 import { devError } from '@/lib/logging';
 import { attributeNameToSlug } from '@/lib/recap';
+import { UI_GENERIC, UI_LOAD_FAILED } from '@/lib/user-facing-errors';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type Sport = {
   id: string;
@@ -66,6 +68,7 @@ export default function AthleteDetailScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const { isFollowing, followersCount, followingCount, toggleFollow, toggleLoading } = useFollow(userId);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [ratings, setRatings] = useState<AttributeRating[]>([]);
@@ -183,7 +186,10 @@ export default function AthleteDetailScreen() {
         setSelectedSportId(initialSportId || null);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load profile');
+      if (__DEV__) {
+        devError('AthleteProfile', 'loadProfile failed:', err);
+      }
+      setError(UI_LOAD_FAILED);
     } finally {
       setLoading(false);
     }
@@ -386,7 +392,10 @@ export default function AthleteDetailScreen() {
       closeCosignModal();
       if (selectedSportId) loadRatingsForSport(selectedSportId);
     } catch (err: any) {
-      setCosignError(err.message || 'An unexpected error occurred.');
+      if (__DEV__) {
+        devError('AthleteProfile', 'cosign failed:', err);
+      }
+      setCosignError(UI_GENERIC);
     } finally {
       setIsSubmitting(false);
     }
@@ -432,7 +441,7 @@ export default function AthleteDetailScreen() {
       />
       <Screen>
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPadding }]}
           showsVerticalScrollIndicator={false}
         >
           <Header title={profile.name ?? 'Athlete'} />
@@ -659,9 +668,7 @@ const styles = StyleSheet.create({
     ...Typography.muted,
     textAlign: 'center',
   },
-  scrollContent: {
-    paddingBottom: Spacing.md,
-  },
+  scrollContent: {},
   profileCard: {
     marginBottom: Spacing.xl,
   },

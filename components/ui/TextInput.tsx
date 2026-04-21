@@ -1,16 +1,15 @@
-import { TextInput as RNTextInput, StyleSheet, Text, ViewStyle, TextInputProps } from 'react-native';
+import { TextInput as RNTextInput, StyleSheet, Text, TextInputProps } from 'react-native';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Radius, Typography } from '@/constants/theme';
 
 type CustomTextInputProps = TextInputProps & {
   label?: string;
-  containerStyle?: ViewStyle;
 };
 
 export function TextInput({
   label,
-  containerStyle,
   style,
+  accessibilityLabel,
   ...props
 }: CustomTextInputProps) {
   const { colors } = useThemeColors();
@@ -18,7 +17,11 @@ export function TextInput({
   return (
     <>
       {label && (
-        <Text style={[styles.label, { color: colors.text }]}>
+        <Text
+          style={[styles.label, { color: colors.text }]}
+          accessible={false}
+          importantForAccessibility="no"
+        >
           {label}
         </Text>
       )}
@@ -33,6 +36,7 @@ export function TextInput({
           style,
         ]}
         placeholderTextColor={colors.textMuted}
+        accessibilityLabel={accessibilityLabel ?? label}
         {...props}
       />
     </>

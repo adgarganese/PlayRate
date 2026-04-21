@@ -1,6 +1,6 @@
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useThemeColors } from '@/contexts/theme-context';
-import { Spacing, Radius } from '@/constants/theme';
+import { Spacing, Radius, Typography } from '@/constants/theme';
 import { SkeletonPlaceholder } from '@/components/ui/SkeletonPlaceholder';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 
@@ -21,13 +21,22 @@ function AthleteRowSkeleton() {
   );
 }
 
-export function AthleteListSkeleton() {
+type AthleteListSkeletonProps = {
+  /** Shown under the skeleton when the main request is still in flight (e.g. slow network). */
+  hintText?: string;
+};
+
+export function AthleteListSkeleton({ hintText }: AthleteListSkeletonProps) {
+  const { colors } = useThemeColors();
   return (
     <SkeletonPlaceholder>
       <View style={[styles.list, styles.listFlex]}>
         {[0, 1, 2, 3, 4].map((i) => (
           <AthleteRowSkeleton key={i} />
         ))}
+        {hintText ? (
+          <Text style={[styles.hint, Typography.mutedSmall, { color: colors.textMuted }]}>{hintText}</Text>
+        ) : null}
       </View>
     </SkeletonPlaceholder>
   );
@@ -63,5 +72,10 @@ const styles = StyleSheet.create({
   },
   chevronSlot: {
     marginLeft: Spacing.sm,
+  },
+  hint: {
+    textAlign: 'center',
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
   },
 });

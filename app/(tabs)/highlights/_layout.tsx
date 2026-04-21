@@ -5,7 +5,7 @@ export default function HighlightsLayout() {
     <Stack screenOptions={{ headerShown: false, gestureEnabled: true }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="create" />
-      <Stack.Screen name="send-dm" options={{ title: 'Send via DM' }} />
+      <Stack.Screen name="send-dm" options={{ headerShown: false }} />
       <Stack.Screen name="[highlightId]/index" />
       <Stack.Screen name="[highlightId]/comments" />
     </Stack>

@@ -1,7 +1,8 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getUnreadCount } from '@/lib/dms';
 import { getUnreadNotificationCount } from '@/lib/notifications';
+import { logger } from '@/lib/logger';
 
 type BadgeContextValue = {
   unreadDmCount: number;
@@ -44,7 +45,7 @@ export function BadgeProvider({ children, userId }: BadgeProviderProps) {
       setUnreadDmCount(dm);
       setUnreadNotifCount(notif);
       if (__DEV__) {
-        console.log('[Badge] refresh', { userId: userId.slice(0, 8), dm, notif });
+        logger.info('[Badge] refresh', { dm, notif });
       }
     } catch (e) {
       if (__DEV__) console.warn('[Badge] refresh failed', e);
@@ -84,11 +85,14 @@ export function BadgeProvider({ children, userId }: BadgeProviderProps) {
     };
   }, [userId, refreshBadges]);
 
-  const value: BadgeContextValue = {
-    unreadDmCount,
-    unreadNotifCount,
-    refreshBadges,
-  };
+  const value = useMemo(
+    (): BadgeContextValue => ({
+      unreadDmCount,
+      unreadNotifCount,
+      refreshBadges,
+    }),
+    [unreadDmCount, unreadNotifCount, refreshBadges]
+  );
 
   return <BadgeContext.Provider value={value}>{children}</BadgeContext.Provider>;
 }

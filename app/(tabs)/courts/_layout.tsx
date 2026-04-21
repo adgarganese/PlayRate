@@ -4,10 +4,12 @@ export default function CourtsLayout() {
   return (
     <Stack screenOptions={{ gestureEnabled: true }}>
       <Stack.Screen name="index" options={{ title: 'Courts', headerShown: false }} />
+      <Stack.Screen name="find" options={{ title: 'Find courts', headerShown: false }} />
       <Stack.Screen name="[courtId]" options={{ title: 'Court Details', headerShown: false }} />
+      <Stack.Screen name="edit/[courtId]" options={{ title: 'Edit court', headerShown: false }} />
       <Stack.Screen name="run/[runId]" options={{ title: 'Run', headerShown: false }} />
       <Stack.Screen name="new" options={{ title: '', headerShown: false }} />
-      <Stack.Screen name="send-dm" options={{ title: 'Send via DM' }} />
+      <Stack.Screen name="send-dm" options={{ headerShown: false }} />
     </Stack>
   );
 }

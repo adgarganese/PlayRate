@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
-  Text,
   FlatList,
   StyleSheet,
   ActivityIndicator,
   TextInput as RNTextInput,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { AthleteListSkeleton } from '@/components/skeletons/AthleteListSkeleton';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
@@ -18,57 +18,80 @@ import { Spacing, Typography, Radius } from '@/constants/theme';
 import { isSportEnabled } from '@/constants/sport-definitions';
 import { UI_LOAD_FAILED } from '@/lib/user-facing-errors';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyAthletesIllustration } from '@/components/illustrations';
+import { logger } from '@/lib/logger';
+import { escapeIlikePattern } from '@/lib/ilike-escape';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type Profile = {
   user_id: string;
   name: string | null;
   username: string | null;
-  bio: string | null;
+  avatar_url: string | null;
+  rep_level: string | null;
+  active_sport_id: string | null;
   sports: string[];
-  play_style: string | null;
+};
+
+type ProfileRow = {
+  user_id: string;
+  name: string | null;
+  username: string | null;
+  avatar_url: string | null;
+  rep_level: string | null;
+  active_sport_id: string | null;
+  profile_sports: ProfileSportJoin[] | null;
+};
+
+type ProfileSportJoin = {
+  sport: { name?: string } | { name?: string }[] | null;
 };
 
 const PAGE_SIZE = 24;
 const SEARCH_LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;
+const STALE_MS = 30_000;
+const SLOW_LOAD_HINT_MS = 5000;
 
-/** Escape % and _ for PostgREST ilike patterns. */
-function escapeIlikePattern(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
+/** Single round-trip: list fields + sports via FK embed (avoids sequential profile_sports query). */
+const PROFILE_LIST_SELECT = `
+  user_id,
+  name,
+  username,
+  avatar_url,
+  rep_level,
+  active_sport_id,
+  profile_sports (
+    sport:sports (
+      name
+    )
+  )
+`;
 
-async function attachSportsToProfiles(
-  profilesData: { user_id: string; name: string | null; username: string | null; bio: string | null; play_style: string | null }[]
-): Promise<Profile[]> {
-  if (profilesData.length === 0) return [];
-  const profileIds = profilesData.map((p) => p.user_id);
-  const { data: profileSportsData } = await supabase
-    .from('profile_sports')
-    .select('profile_id, sport:sports(name)')
-    .in('profile_id', profileIds);
-
-  const sportsByProfile: Record<string, string[]> = {};
-  profileSportsData?.forEach((ps: { profile_id: string; sport: { name?: string } | { name?: string }[] | null }) => {
-    if (!sportsByProfile[ps.profile_id]) {
-      sportsByProfile[ps.profile_id] = [];
+function mapEmbedToProfiles(rows: ProfileRow[]): Profile[] {
+  return rows.map((row) => {
+    const sports: string[] = [];
+    for (const ps of row.profile_sports ?? []) {
+      const sport = Array.isArray(ps.sport) ? ps.sport[0] : ps.sport;
+      if (sport?.name) sports.push(sport.name);
     }
-    const sport = Array.isArray(ps.sport) ? ps.sport[0] : ps.sport;
-    if (sport?.name) {
-      sportsByProfile[ps.profile_id].push(sport.name);
-    }
+    return {
+      user_id: row.user_id,
+      name: row.name,
+      username: row.username,
+      avatar_url: row.avatar_url,
+      rep_level: row.rep_level ?? null,
+      active_sport_id: row.active_sport_id,
+      sports,
+    };
   });
-
-  return profilesData.map((profile) => ({
-    ...profile,
-    sports: sportsByProfile[profile.user_id] || [],
-    play_style: profile.play_style ?? null,
-  }));
 }
 
 export default function Profiles() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [baseProfiles, setBaseProfiles] = useState<Profile[]>([]);
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,10 +100,16 @@ export default function Profiles() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [slowLoadHint, setSlowLoadHint] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const nextPageRef = useRef(0);
   const searchReqId = useRef(0);
   const loadingMoreRef = useRef(false);
   const mountedRef = useRef(true);
+  const lastSuccessfulFetchAt = useRef<number | null>(null);
+  const firstPageInFlightRef = useRef(false);
+  const baseProfilesLengthRef = useRef(0);
+  const searchActiveRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -94,60 +123,101 @@ export default function Profiles() {
   const displayProfiles = isSearchActive ? searchResults : baseProfiles;
 
   useEffect(() => {
-    let cancelled = false;
-    nextPageRef.current = 0;
-    setHasMore(true);
-    setError(null);
-    setLoadingInitial(true);
+    searchActiveRef.current = isSearchActive;
+  }, [isSearchActive]);
 
-    void (async () => {
-      try {
-        const from = 0;
-        const to = PAGE_SIZE - 1;
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('user_id, name, username, bio, play_style')
-          .order('user_id', { ascending: true })
-          .range(from, to);
+  useEffect(() => {
+    baseProfilesLengthRef.current = baseProfiles.length;
+  }, [baseProfiles.length]);
 
-        if (cancelled) return;
+  const runFirstPageFetch = useCallback(async (options?: { silent?: boolean }) => {
+    if (firstPageInFlightRef.current) return;
+    firstPageInFlightRef.current = true;
+    const silent = options?.silent ?? false;
+    let slowTimer: ReturnType<typeof setTimeout> | undefined;
 
-        if (profilesError) {
+    try {
+      if (!silent) {
+        setLoadingInitial(true);
+        setError(null);
+        setSlowLoadHint(false);
+        slowTimer = setTimeout(() => {
+          if (mountedRef.current) setSlowLoadHint(true);
+        }, SLOW_LOAD_HINT_MS);
+      }
+
+      const from = 0;
+      const to = PAGE_SIZE - 1;
+      const { data, error: profilesError } = await supabase
+        .from('profiles')
+        .select(PROFILE_LIST_SELECT)
+        .order('user_id', { ascending: true })
+        .range(from, to);
+
+      if (!mountedRef.current) return;
+
+      if (profilesError) {
+        logger.error('[athletes-list] profiles query failed', { err: profilesError, silent });
+        if (!silent) {
           setError(profilesError.message);
           setBaseProfiles([]);
-          setHasMore(false);
-          return;
         }
+        setHasMore(false);
+        return;
+      }
 
-        if (!profilesData || profilesData.length === 0) {
-          setBaseProfiles([]);
-          setHasMore(false);
-          return;
-        }
+      const rows = (data ?? []) as ProfileRow[];
+      if (rows.length === 0) {
+        setBaseProfiles([]);
+        setHasMore(false);
+        lastSuccessfulFetchAt.current = Date.now();
+        if (!silent) setError(null);
+        return;
+      }
 
-        const profilesWithSports = await attachSportsToProfiles(profilesData);
-        if (cancelled) return;
-
-        setBaseProfiles(profilesWithSports);
-        nextPageRef.current = 1;
-        setHasMore(profilesData.length >= PAGE_SIZE);
-      } catch {
-        if (!cancelled) {
+      setBaseProfiles(mapEmbedToProfiles(rows));
+      nextPageRef.current = 1;
+      setHasMore(rows.length >= PAGE_SIZE);
+      lastSuccessfulFetchAt.current = Date.now();
+      if (!silent) setError(null);
+    } catch (err) {
+      logger.error('[athletes-list] profiles fetch threw', { err, silent });
+      if (mountedRef.current) {
+        if (!silent) {
           setError(UI_LOAD_FAILED);
           setBaseProfiles([]);
-          setHasMore(false);
         }
-      } finally {
-        if (!cancelled) {
-          setLoadingInitial(false);
-        }
+        setHasMore(false);
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    } finally {
+      if (slowTimer) clearTimeout(slowTimer);
+      if (mountedRef.current) {
+        setSlowLoadHint(false);
+        if (!silent) setLoadingInitial(false);
+      }
+      firstPageInFlightRef.current = false;
+    }
   }, []);
+
+  // Covers eager tab mounts (screen mounted before first focus); pairs with useFocusEffect for stale refetch.
+  useEffect(() => {
+    if (lastSuccessfulFetchAt.current !== null) return;
+    void runFirstPageFetch({ silent: false });
+  }, [runFirstPageFetch]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (searchActiveRef.current) return undefined;
+      const now = Date.now();
+      const last = lastSuccessfulFetchAt.current;
+      const len = baseProfilesLengthRef.current;
+      if (last === null) return undefined;
+      if (now - last > STALE_MS) {
+        void runFirstPageFetch({ silent: len > 0 });
+      }
+      return undefined;
+    }, [runFirstPageFetch])
+  );
 
   useEffect(() => {
     if (!isSearchActive) {
@@ -166,13 +236,14 @@ export default function Profiles() {
         try {
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
-            .select('user_id, name, username, bio, play_style')
+            .select(PROFILE_LIST_SELECT)
             .or(`username.ilike.%${escaped}%,name.ilike.%${escaped}%`)
             .limit(SEARCH_LIMIT);
 
           if (searchReqId.current !== reqId) return;
 
           if (profilesError) {
+            logger.error('[athletes-list] search query failed', { err: profilesError, query: q });
             setError(profilesError.message);
             setSearchResults([]);
             return;
@@ -183,10 +254,9 @@ export default function Profiles() {
             return;
           }
 
-          const profilesWithSports = await attachSportsToProfiles(profilesData);
-          if (searchReqId.current !== reqId) return;
-          setSearchResults(profilesWithSports);
-        } catch {
+          setSearchResults(mapEmbedToProfiles(profilesData as ProfileRow[]));
+        } catch (err) {
+          logger.error('[athletes-list] search fetch threw', { err, query: q });
           if (searchReqId.current === reqId) {
             setError(UI_LOAD_FAILED);
             setSearchResults([]);
@@ -200,7 +270,7 @@ export default function Profiles() {
     }, SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [trimmedSearch, isSearchActive]);
+  }, [trimmedSearch, isSearchActive, retryNonce]);
 
   const handleLoadMore = useCallback(async () => {
     if (isSearchActive || !hasMore || loadingInitial || loadingMoreRef.current) return;
@@ -216,11 +286,12 @@ export default function Profiles() {
 
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select('user_id, name, username, bio, play_style')
+        .select(PROFILE_LIST_SELECT)
         .order('user_id', { ascending: true })
         .range(from, to);
 
       if (profilesError) {
+        logger.error('[athletes-list] load more failed', { err: profilesError });
         if (mountedRef.current) setError(profilesError.message);
         return;
       }
@@ -230,12 +301,13 @@ export default function Profiles() {
         return;
       }
 
-      const profilesWithSports = await attachSportsToProfiles(profilesData);
+      const mapped = mapEmbedToProfiles(profilesData as ProfileRow[]);
       if (!mountedRef.current) return;
-      setBaseProfiles((prev) => [...prev, ...profilesWithSports]);
+      setBaseProfiles((prev) => [...prev, ...mapped]);
       nextPageRef.current = page + 1;
       setHasMore(profilesData.length >= PAGE_SIZE);
-    } catch {
+    } catch (err) {
+      logger.error('[athletes-list] load more threw', { err });
       if (mountedRef.current) setError(UI_LOAD_FAILED);
     } finally {
       loadingMoreRef.current = false;
@@ -276,14 +348,21 @@ export default function Profiles() {
 
       {error && !showListSkeleton && displayProfiles.length === 0 ? (
         <View style={styles.errorContainer}>
-          <Text style={[styles.errorTitle, { color: colors.text }]}>Error</Text>
-          <Text style={[styles.errorText, { color: colors.textMuted }]}>{error}</Text>
+          <ErrorState
+            onRetry={() => {
+              setError(null);
+              if (!isSearchActive) void runFirstPageFetch({ silent: false });
+              else setRetryNonce((n) => n + 1);
+            }}
+          />
         </View>
       ) : showListSkeleton ? (
-        <AthleteListSkeleton />
+        <AthleteListSkeleton
+          hintText={slowLoadHint ? 'Taking longer than expected…' : undefined}
+        />
       ) : (
         <FlatList
-          contentContainerStyle={styles.listContainer}
+          contentContainerStyle={[styles.listContainer, { paddingBottom: scrollBottomPadding }]}
           data={displayProfiles}
           keyExtractor={(item) => item.user_id}
           onEndReached={handleLoadMore}
@@ -293,6 +372,7 @@ export default function Profiles() {
               title={item.name ?? 'No name yet'}
               subtitle={`@${item.username ?? 'no-username'}`}
               metadataLine={item.sports.filter(isSportEnabled).join(', ') || undefined}
+              tierRepLevel={item.rep_level}
               showChevron
               onPress={() => handleProfilePress(item.user_id)}
             />
@@ -324,14 +404,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: Spacing.lg,
   },
-  errorTitle: {
-    ...Typography.h3,
-    marginBottom: Spacing.sm,
-  },
-  errorText: {
-    ...Typography.muted,
-    textAlign: 'center',
-  },
   searchContainer: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
@@ -345,7 +417,6 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xl,
   },
   footerLoading: {
     paddingVertical: Spacing.lg,

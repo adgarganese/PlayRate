@@ -9,6 +9,8 @@ import { ProfilePicture } from '@/components/ProfilePicture';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
+import { UI_LOAD_FAILED } from '@/lib/user-facing-errors';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 const PAGE_SIZE = 25;
 
@@ -17,12 +19,14 @@ type ProfileUser = {
   name: string | null;
   username: string | null;
   avatar_url: string | null;
+  rep_level: string | null;
 };
 
 export default function FollowersScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const router = useRouter();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [profiles, setProfiles] = useState<ProfileUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -49,7 +53,7 @@ export default function FollowersScreen() {
         .order('created_at', { ascending: false });
 
       if (followsError) {
-        setError(followsError.message);
+        setError(UI_LOAD_FAILED);
         setProfiles([]);
         return;
       }
@@ -77,11 +81,11 @@ export default function FollowersScreen() {
 
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select('user_id, name, username, avatar_url')
+        .select('user_id, name, username, avatar_url, rep_level')
         .in('user_id', followerIds);
 
       if (profilesError) {
-        setError(profilesError.message);
+        setError(UI_LOAD_FAILED);
         return;
       }
 
@@ -101,8 +105,8 @@ export default function FollowersScreen() {
       } else {
         setProfiles(orderedProfiles);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load followers');
+    } catch {
+      setError(UI_LOAD_FAILED);
       setProfiles([]);
     } finally {
       setLoading(false);
@@ -154,7 +158,7 @@ export default function FollowersScreen() {
         <FlatList
           data={profiles}
           keyExtractor={(item) => item.user_id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: scrollBottomPadding }]}
           renderItem={({ item }) => (
             <TouchableOpacity
               activeOpacity={0.7}
@@ -163,6 +167,7 @@ export default function FollowersScreen() {
               <ListItem
                 title={item.name ?? 'No name'}
                 subtitle={`@${item.username ?? 'no-username'}`}
+                tierRepLevel={item.rep_level}
                 showChevron
                 leftContent={
                   <ProfilePicture
@@ -217,7 +222,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xl,
   },
   emptyContainer: {
     flex: 1,

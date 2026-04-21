@@ -1,9 +1,21 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { Platform } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { resetAnalytics } from '../lib/analytics';
+import { resetAnalytics, track } from '../lib/analytics';
 import { isSupabaseConfigured, supabaseUrl } from '../lib/config';
 import { logAuthDiagnostics, logCaughtError } from '../lib/auth-diagnostics';
+import {
+  logBootAuthEvent,
+  logBootFirstRouteDecision,
+  logBootProfileEnd,
+  logBootProfileStart,
+  logBootSessionEnd,
+  logBootSessionStart,
+} from '../lib/boot-log';
+import { logger } from '../lib/logger';
+import { sanitizeUsername } from '../lib/sanitize';
+import { unregisterPushToken } from '../lib/push-notifications';
 
 type AuthContextType = {
   session: Session | null;
@@ -18,124 +30,96 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+async function emitProfileCreatedAnalytics(userId: string): Promise<void> {
+  try {
+    const { count } = await supabase
+      .from('profile_sports')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+    const { data: p } = await supabase.from('profiles').select('avatar_url').eq('user_id', userId).maybeSingle();
+    track('profile_created', {
+      has_avatar: !!(p?.avatar_url && String(p.avatar_url).trim()),
+      sports_count: count ?? 0,
+    });
+  } catch {
+    track('profile_created', { has_avatar: false, sports_count: 0 });
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setConfigError('EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing. Set them in EAS secrets.');
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    supabase.auth.getSession().then(({ data: { session: s }, error }) => {
-      if (cancelled) return;
-      if (__DEV__) {
-        if (error) logCaughtError(error);
-        logAuthDiagnostics({
-          hasSupabaseUrl: !!supabaseUrl,
-          supabaseClientInit: !!supabase?.auth,
-          hasSession: !!s,
-          hasUserId: !!s?.user?.id,
-        });
-      }
-      setSession(s);
-      setUser(s?.user ?? null);
-      setLoading(false);
-      if (s?.user) {
-        ensureProfileExists(s.user.id).catch((e) => {
-          if (__DEV__) logCaughtError(e);
-        });
-      }
-    }).catch((e) => {
-      if (cancelled) return;
-      if (__DEV__) logCaughtError(e);
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (cancelled) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-      if (session?.user) {
-        try {
-          await ensureProfileExists(session.user.id);
-        } catch (e) {
-          if (__DEV__) logCaughtError(e);
-        }
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  // Helper function to ensure profile exists (use maybeSingle to avoid throw when no row - .single() crashes on TestFlight)
-  const ensureProfileExists = async (userId: string) => {
+  const ensureProfileExists = useCallback(async (userId: string) => {
     const { data: existingProfile } = await supabase
       .from('profiles')
       .select('user_id')
       .eq('user_id', userId)
       .maybeSingle();
 
-    // If no profile exists, try to create one
     if (!existingProfile) {
-      // Get user metadata for username
       const { data: { user } } = await supabase.auth.getUser();
-      
-      // Generate username: prefer metadata, then email prefix, then phone number, then fallback
+
       let username = user?.user_metadata?.username;
       if (!username) {
         if (user?.email) {
-          username = user.email.split('@')[0];
+          username = sanitizeUsername(user.email.split('@')[0] || '');
         } else if (user?.phone) {
-          // Use last 4 digits of phone as username base
           const phoneDigits = user.phone.replace(/\D/g, '');
           username = `user_${phoneDigits.slice(-4)}`;
         } else {
           username = `user_${userId.slice(0, 8)}`;
         }
+      } else {
+        username = sanitizeUsername(username);
       }
-      
+      if (username.length < 3) {
+        username = `user_${userId.slice(0, 8)}`;
+      }
+
       const { error } = await supabase
         .from('profiles')
         .insert({
           user_id: userId,
-          username: username,
+          username,
           name: null,
           bio: null,
+          onboarding_completed: false,
         });
 
-      if (error && __DEV__) {
-        console.error('Failed to create profile:', error);
+      if (error) {
+        logger.error('Failed to create profile (ensureProfileExists)', {
+          err: error,
+          userId,
+        });
+      } else {
+        void emitProfileCreatedAnalytics(userId);
       }
     }
-  };
+  }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     return { error };
-  };
+  }, []);
 
-  const signUp = async (email: string, password: string, username: string) => {
-    // Sign up the user with username in metadata
+  const signUp = useCallback(async (email: string, password: string, username: string) => {
+    const normalizedUsername = sanitizeUsername(username);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          username: username,
+          username: normalizedUsername,
         },
+        ...(Platform.OS !== 'web'
+          ? { emailRedirectTo: 'playrate://auth/callback' }
+          : {}),
       },
     });
 
@@ -143,61 +127,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error };
     }
 
-    // Try to create profile immediately if we have a session
     if (data.user) {
-      // Wait a moment for auth to settle
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Get the current session
+
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (session) {
-        // We have a session, try to create profile
         const { error: profileError } = await supabase
           .from('profiles')
           .insert({
             user_id: data.user.id,
-            username: username,
+            username: normalizedUsername,
             name: null,
             bio: null,
+            onboarding_completed: false,
           });
 
         if (profileError) {
-          // If it fails, it might be because:
-          // 1. Trigger already created it (duplicate key - that's OK)
-          // 2. RLS blocking it (will be created by trigger or on email confirmation)
-          // 3. Some other error
           if (!profileError.message.includes('duplicate key') &&
               !profileError.message.includes('violates row-level security')) {
-            if (__DEV__) console.error('Profile creation error:', profileError);
-            // Return error so user knows
-            return { 
+            logger.error('Profile insert failed after email sign-up', {
+              code: profileError.code,
+              message: profileError.message,
+            });
+            return {
               error: {
-                message: `Account created, but profile creation failed: ${profileError.message}. Please try signing in after email verification.`
-              }
+                message:
+                  'Account was created but your profile could not be set up. After you verify your email, try signing in — your profile may complete automatically.',
+              },
             };
           }
+        } else {
+          void emitProfileCreatedAnalytics(data.user.id);
         }
       } else {
-        // No session yet (email confirmation required)
-        // Profile will be created by trigger or when they sign in after email confirmation
-        if (__DEV__) console.log('No session yet - profile will be created after email confirmation');
+        if (__DEV__) {
+          logger.info('Auth: no session on sign-up yet; profile after email confirmation');
+        }
       }
     }
 
     return { error: null };
-  };
+  }, []);
 
-  const signInWithPhone = async (phone: string) => {
-    // Send OTP to phone number
+  const signInWithPhone = useCallback(async (phone: string) => {
     const { error } = await supabase.auth.signInWithOtp({
       phone: phone,
     });
     return { error };
-  };
+  }, []);
 
-  const verifyPhoneOtp = async (phone: string, token: string, username?: string) => {
-    // Verify OTP and sign in/up
+  const verifyPhoneOtp = useCallback(async (phone: string, token: string, username?: string) => {
     const { data, error } = await supabase.auth.verifyOtp({
       phone: phone,
       token: token,
@@ -208,29 +188,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error };
     }
 
-    // If this is a new user and username is provided, store it in metadata
     if (data.user && username) {
       await supabase.auth.updateUser({
         data: {
-          username: username,
+          username: sanitizeUsername(username),
         },
       });
     }
 
-    // Ensure profile exists after successful verification
     if (data.user) {
-      // Wait a moment for auth to settle
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Get the current session
+
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (session) {
-        // Try to create profile with username if provided
-        const profileUsername = username || 
-          data.user.user_metadata?.username || 
+        const rawProfileUsername = username ||
+          data.user.user_metadata?.username ||
           (data.user.phone ? `user_${data.user.phone.replace(/\D/g, '').slice(-4)}` : `user_${data.user.id.slice(0, 8)}`);
-        
+        let profileUsername = sanitizeUsername(String(rawProfileUsername));
+        if (profileUsername.length < 3) {
+          profileUsername = `user_${data.user.id.slice(0, 8)}`;
+        }
+
         const { error: profileError } = await supabase
           .from('profiles')
           .insert({
@@ -238,66 +217,177 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             username: profileUsername,
             name: null,
             bio: null,
+            onboarding_completed: false,
           });
 
         if (profileError) {
-          // If it fails, it might be because trigger already created it (that's OK)
           if (!profileError.message.includes('duplicate key') &&
-              !profileError.message.includes('violates row-level security') && __DEV__) {
-            console.error('Profile creation error:', profileError);
+              !profileError.message.includes('violates row-level security')) {
+            logger.error('Profile insert failed after phone OTP', {
+              err: profileError,
+              userId: data.user.id,
+            });
           }
+        } else {
+          void emitProfileCreatedAnalytics(data.user.id);
         }
       }
     }
 
     return { error: null };
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
+      track('sign_out', {});
+      await unregisterPushToken();
       resetAnalytics();
       const { error } = await supabase.auth.signOut();
       if (error) {
-        if (__DEV__) console.error('Sign out error:', error);
+        logger.error('Sign out failed', { err: error });
         throw error;
       }
-      // Explicitly clear the session state
       setSession(null);
       setUser(null);
-      
-      // On web, ensure localStorage is cleared (Supabase should do this, but double-check)
+
       if (typeof window !== 'undefined') {
-        // Wait a moment for Supabase to clear storage
         await new Promise(resolve => setTimeout(resolve, 50));
-        // Verify session is cleared
         const { data: { session } } = await supabase.auth.getSession();
-        if (session && __DEV__) {
-          console.warn('Session still exists after sign out, forcing clear');
+        if (session) {
+          logger.warn('Session still present after signOut (web); clearing local state', {
+            scope: 'auth',
+          });
           setSession(null);
           setUser(null);
         }
       }
     } catch (error) {
-      if (__DEV__) console.error('Error signing out:', error);
-      // Even if there's an error, clear local state
+      logger.error('Sign out threw', { err: error });
       setSession(null);
       setUser(null);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setConfigError(
+        'EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing. Set them in EAS environment variables (Expo dashboard or eas env:create).'
+      );
+      setLoading(false);
+      if (__DEV__) logBootSessionEnd('skipped', 'supabase_not_configured');
+      return;
+    }
+
+    let cancelled = false;
+    const HYDRATION_TIMEOUT_MS = 12000;
+    const hydrationDoneRef = { current: false };
+    const profileBootstrappedForUserId = { current: null as string | null };
+
+    const finishInitialHydration = (signedIn: boolean) => {
+      if (cancelled || hydrationDoneRef.current) return;
+      hydrationDoneRef.current = true;
+      setLoading(false);
+      if (__DEV__) {
+        logBootSessionEnd('ready');
+        logBootFirstRouteDecision(signedIn);
+      }
+    };
+
+    const scheduleProfileBootstrap = (userId: string, event: string) => {
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT') return;
+      if (profileBootstrappedForUserId.current === userId) return;
+      profileBootstrappedForUserId.current = userId;
+      if (__DEV__) logBootProfileStart(userId);
+      void ensureProfileExists(userId)
+        .then(() => {
+          if (__DEV__) logBootProfileEnd('ok');
+        })
+        .catch((e) => {
+          if (__DEV__) {
+            logBootProfileEnd('error');
+            logCaughtError(e);
+          }
+        });
+    };
+
+    if (__DEV__) logBootSessionStart();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      if (__DEV__ && event !== 'TOKEN_REFRESHED') logBootAuthEvent(event);
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (!session?.user) {
+        profileBootstrappedForUserId.current = null;
+      }
+      finishInitialHydration(!!session?.user);
+      if (session?.user) {
+        scheduleProfileBootstrap(session.user.id, event);
+      }
+    });
+
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: s }, error }) => {
+        if (cancelled) return;
+        if (__DEV__) {
+          if (error) logCaughtError(error);
+          logAuthDiagnostics({
+            hasSupabaseUrl: !!supabaseUrl,
+            supabaseClientInit: !!supabase?.auth,
+            hasSession: !!s,
+            hasUserId: !!s?.user?.id,
+          });
+        }
+        setSession(s);
+        setUser(s?.user ?? null);
+        if (!hydrationDoneRef.current) {
+          finishInitialHydration(!!s?.user);
+        }
+        if (s?.user) {
+          scheduleProfileBootstrap(s.user.id, 'GET_SESSION');
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (__DEV__) logCaughtError(e);
+        if (!hydrationDoneRef.current) finishInitialHydration(false);
+      });
+
+    const timeoutId = setTimeout(() => {
+      if (cancelled) return;
+      if (!hydrationDoneRef.current) {
+        if (__DEV__) logBootSessionEnd('ready', 'timeout_unblock');
+        hydrationDoneRef.current = true;
+        setLoading(false);
+      }
+    }, HYDRATION_TIMEOUT_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
+  }, [ensureProfileExists]);
+
+  const authValue = useMemo(
+    () => ({
+      session,
+      user,
+      loading,
+      signIn,
+      signUp,
+      signInWithPhone,
+      verifyPhoneOtp,
+      signOut,
+    }),
+    [session, user, loading, signIn, signUp, signInWithPhone, verifyPhoneOtp, signOut]
+  );
 
   if (configError) throw new Error(configError);
 
   return (
-    <AuthContext.Provider value={{ 
-      session, 
-      user, 
-      loading, 
-      signIn, 
-      signUp, 
-      signInWithPhone, 
-      verifyPhoneOtp, 
-      signOut 
-    }}>
+    <AuthContext.Provider value={authValue}>
       {children}
     </AuthContext.Provider>
   );

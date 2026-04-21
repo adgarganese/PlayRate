@@ -1,5 +1,5 @@
 /**
- * Tab shell: haptics, cross-fade between tabs, premium tab bar (blur / frosted surface, accent border, active indicator).
+ * Tab shell: haptics, cross-fade between tabs, premium tab bar (blur / frosted surface, accent border).
  */
 import { Tabs } from 'expo-router';
 import React from 'react';
@@ -13,10 +13,6 @@ import { useThemeColors } from '@/contexts/theme-context';
 const ACCENT_PINK_TOP = 'rgba(255, 45, 85, 0.15)';
 const TAB_BAR_EXTRA_TOP = 10;
 const TAB_BAR_EXTRA_BOTTOM = 10;
-const INDICATOR_WIDTH = 20;
-const INDICATOR_HEIGHT = 3;
-const INDICATOR_GAP = 4;
-
 function TabBarBackground() {
   const { isDark } = useThemeColors();
   const tint = isDark ? 'dark' : 'light';
@@ -41,26 +37,15 @@ function TabBarBackground() {
 function TabBarIconWithIndicator({
   name,
   color,
-  focused,
+  focused: _focused,
 }: {
   name: React.ComponentProps<typeof IconSymbol>['name'];
   color: string;
   focused: boolean;
 }) {
-  const { colors } = useThemeColors();
   return (
     <View style={styles.tabIconColumn}>
       <IconSymbol size={28} name={name} color={color} />
-      <View style={styles.indicatorSlot}>
-        {focused ? (
-          <View
-            style={[
-              styles.indicator,
-              { backgroundColor: colors.accentPink },
-            ]}
-          />
-        ) : null}
-      </View>
     </View>
   );
 }
@@ -177,17 +162,5 @@ const styles = StyleSheet.create({
   tabIconColumn: {
     alignItems: 'center',
     justifyContent: 'flex-start',
-  },
-  indicatorSlot: {
-    marginTop: INDICATOR_GAP,
-    height: INDICATOR_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: INDICATOR_WIDTH,
-  },
-  indicator: {
-    width: INDICATOR_WIDTH,
-    height: INDICATOR_HEIGHT,
-    borderRadius: INDICATOR_HEIGHT / 2,
   },
 });

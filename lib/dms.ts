@@ -1,4 +1,8 @@
 import { supabase } from './supabase';
+import { logger } from './logger';
+import { isRpcRateLimitError, RPC_RATE_LIMIT_USER_MESSAGE } from './rpc-rate-limit';
+import { createInAppNotification } from './create-in-app-notification';
+import { sanitizeText, SANITIZE_LIMITS } from './sanitize';
 
 export type ConversationRow = {
   id: string;
@@ -27,11 +31,17 @@ export const HIGHLIGHT_LINK_PREFIX = 'playrate://highlights/';
 /** Deep link prefix for court shares in DMs. Body = COURT_LINK_PREFIX + courtId */
 export const COURT_LINK_PREFIX = 'playrate://courts/';
 
+const LEGACY_HIGHLIGHT_LINK_PREFIX = 'playrate://profile/highlights/';
+
 /** Returns highlight ID if body is a highlight share link, else null. */
 export function parseHighlightIdFromBody(body: string): string | null {
   const trimmed = body?.trim() || '';
   if (trimmed.startsWith(HIGHLIGHT_LINK_PREFIX)) {
     const id = trimmed.slice(HIGHLIGHT_LINK_PREFIX.length).split(/[\s?#]/)[0];
+    return id && id.length > 0 ? id : null;
+  }
+  if (trimmed.startsWith(LEGACY_HIGHLIGHT_LINK_PREFIX)) {
+    const id = trimmed.slice(LEGACY_HIGHLIGHT_LINK_PREFIX.length).split(/[\s?#]/)[0];
     return id && id.length > 0 ? id : null;
   }
   return null;
@@ -57,6 +67,7 @@ export type ConversationWithMeta = {
   other_user_name: string | null;
   other_user_username: string | null;
   other_user_avatar_url: string | null;
+  other_user_rep_level: string | null;
   unread_count: number;
 };
 
@@ -69,18 +80,23 @@ export async function getOrCreateConversation(
   otherUserId: string
 ): Promise<string> {
   if (__DEV__) {
-    if (__DEV__) console.log('[DM] getOrCreateConversation', { meId, otherUserId });
+    logger.breadcrumb('DM:getOrCreateConversation:start');
   }
   const { data, error } = await supabase.rpc('get_or_create_conversation', {
     other_user_id: otherUserId,
   });
   if (error) {
-    if (__DEV__) console.error('[DM] getOrCreateConversation error', error);
+    if (isRpcRateLimitError(error)) {
+      throw new Error(RPC_RATE_LIMIT_USER_MESSAGE);
+    }
+    logger.error('[DM] getOrCreateConversation failed', { err: error, meId, otherUserId });
     throw error;
   }
   if (!data) throw new Error('No conversation id returned');
   const conversationId = data as string;
-  if (__DEV__) console.log('[DM] getOrCreateConversation ok', { conversationId });
+  if (__DEV__) {
+    logger.breadcrumb('DM:getOrCreateConversation:ok');
+  }
   return conversationId;
 }
 
@@ -160,7 +176,7 @@ export async function listConversations(meId: string): Promise<ConversationWithM
 
   const { data: profiles } = await supabase
     .from('profiles')
-    .select('user_id, name, username, avatar_url')
+    .select('user_id, name, username, avatar_url, rep_level')
     .in('user_id', otherUserIds.map((o) => o.user_id));
   const profileMap = new Map((profiles || []).map((p) => [p.user_id, p]));
   const otherByConv = new Map(otherUserIds.map((o) => [o.conversation_id, o.user_id]));
@@ -206,6 +222,7 @@ export async function listConversations(meId: string): Promise<ConversationWithM
         other_user_name: profile?.name ?? null,
         other_user_username: profile?.username ?? null,
         other_user_avatar_url: profile?.avatar_url ?? null,
+        other_user_rep_level: (profile as { rep_level?: string | null } | undefined)?.rep_level ?? null,
         unread_count: unread,
       };
     })
@@ -241,25 +258,67 @@ export async function sendMessage(
   body: string
 ): Promise<MessageRow> {
   if (__DEV__) {
-    if (__DEV__) console.log('[DM] sendMessage', { conversationId, senderId, bodyLength: body.length });
+    logger.breadcrumb('DM:sendMessage', { bodyLength: body.length });
+  }
+  const safeBody = sanitizeText(body, SANITIZE_LIMITS.dmBody);
+  if (!safeBody) {
+    throw new Error('Message cannot be empty');
   }
   const { data: msg, error: msgError } = await supabase
     .from('messages')
-    .insert({ conversation_id: conversationId, sender_id: senderId, body })
+    .insert({ conversation_id: conversationId, sender_id: senderId, body: safeBody })
     .select('id, conversation_id, sender_id, body, created_at')
     .single();
   if (msgError) {
-    if (__DEV__) console.error('[DM] sendMessage insert error', msgError);
+    logger.error('[DM] sendMessage insert failed', {
+      err: msgError,
+      conversationId,
+      senderId,
+    });
     throw msgError;
   }
-  if (__DEV__) console.log('[DM] sendMessage insert ok', { messageId: (msg as MessageRow).id });
+  if (__DEV__) {
+    logger.breadcrumb('DM:sendMessage:inserted');
+  }
 
   const { error: updateError } = await supabase
     .from('conversations')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', conversationId);
-  if (updateError && __DEV__) {
-    if (__DEV__) console.warn('[DM] sendMessage conversation last_message_at update failed', updateError);
+  if (updateError) {
+    logger.warn('[DM] sendMessage last_message_at update failed', {
+      err: updateError,
+      conversationId,
+    });
+  }
+
+  const { data: participants } = await supabase
+    .from('conversation_participants')
+    .select('user_id')
+    .eq('conversation_id', conversationId);
+  const recipientIds = (participants || [])
+    .map((p: { user_id: string }) => p.user_id)
+    .filter((id) => id !== senderId);
+  if (recipientIds.length > 0) {
+    const { data: senderProf } = await supabase
+      .from('profiles')
+      .select('name, username')
+      .eq('user_id', senderId)
+      .maybeSingle();
+    const label = senderProf?.name?.trim() || senderProf?.username || 'Someone';
+    const preview =
+      safeBody.length > 100 ? `${safeBody.slice(0, 97)}...` : safeBody;
+    for (const recipientId of recipientIds) {
+      await createInAppNotification({
+        userId: recipientId,
+        actorId: senderId,
+        type: 'new_message',
+        entityType: 'conversation',
+        entityId: conversationId,
+        title: `${label} sent you a message`,
+        body: preview,
+      });
+    }
   }
 
   return msg as MessageRow;

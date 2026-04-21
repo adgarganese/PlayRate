@@ -3,6 +3,8 @@
  * All logs are behind __DEV__.
  */
 
+import { logger } from '@/lib/logger';
+
 export function logAuthDiagnostics(opts: {
   hasSupabaseUrl: boolean;
   supabaseClientInit: boolean;
@@ -10,7 +12,7 @@ export function logAuthDiagnostics(opts: {
   hasUserId: boolean;
 }): void {
   if (!__DEV__) return;
-  console.log('[AuthDiagnostics]', {
+  logger.info('[AuthDiagnostics]', {
     EXPO_PUBLIC_SUPABASE_URL_present: opts.hasSupabaseUrl,
     supabase_client_initialized: opts.supabaseClientInit,
     session_on_start: opts.hasSession,
@@ -24,4 +26,19 @@ export function logCaughtError(err: unknown): void {
   const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string }).code : undefined;
   const stack = err instanceof Error ? err.stack : undefined;
   console.warn('[AuthDiagnostics] caught error', { message, code, stack });
+}
+
+/** Dev-only: log auth failures without echoing server messages (may contain hints). */
+export function logAuthErrorSafe(err: unknown): void {
+  if (!__DEV__) return;
+  const code =
+    err && typeof err === 'object' && 'code' in err
+      ? String((err as { code?: string }).code ?? '')
+      : '';
+  const status =
+    err && typeof err === 'object' && 'status' in err
+      ? String((err as { status?: number }).status ?? '')
+      : '';
+  const name = err instanceof Error ? err.name : typeof err;
+  console.warn('[AuthDiagnostics] auth request failed', { code, status, name });
 }

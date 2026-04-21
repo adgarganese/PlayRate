@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { track } from './analytics';
+import { createInAppNotification } from './create-in-app-notification';
 
 /** Run row from DB with court name (runs + courts join) */
 export type RunRow = {
@@ -285,5 +286,89 @@ export async function joinRun(runId: string, userId: string): Promise<{ error: E
     .insert({ run_id: runId, user_id: userId, join_status: 'joined' });
   if (error) return { error };
   track('run_joined', { run_id: runId });
+
+  const { data: run } = await supabase
+    .from('runs')
+    .select('creator_id')
+    .eq('id', runId)
+    .maybeSingle();
+  const creatorId = run?.creator_id as string | undefined;
+  if (creatorId && creatorId !== userId) {
+    const { data: joiner } = await supabase
+      .from('profiles')
+      .select('name, username')
+      .eq('user_id', userId)
+      .maybeSingle();
+    const label = joiner?.name?.trim() || joiner?.username || 'Someone';
+    await createInAppNotification({
+      userId: creatorId,
+      actorId: userId,
+      type: 'run_join',
+      entityType: 'run',
+      entityId: runId,
+      title: `${label} joined your run`,
+      body: null,
+    });
+  }
+
+  return { error: null };
+}
+
+/**
+ * Creates a scheduled run (RLS: creator must be the signed-in user). Emits `run_created` on success.
+ * Used from court detail for staff/creators; adjust defaults when a full scheduling UI ships.
+ */
+export async function createScheduledRun(opts: {
+  courtId: string;
+  creatorId: string;
+  sport: string;
+  startsAt: Date;
+  endsAt: Date;
+  skillBand?: 'casual' | 'balanced' | 'competitive';
+  skillMin?: number | null;
+  skillMax?: number | null;
+  capacity?: number;
+}): Promise<{ runId: string | null; error: Error | null }> {
+  const skill_band = opts.skillBand ?? 'balanced';
+  const { data, error } = await supabase
+    .from('runs')
+    .insert({
+      court_id: opts.courtId,
+      creator_id: opts.creatorId,
+      starts_at: opts.startsAt.toISOString(),
+      ends_at: opts.endsAt.toISOString(),
+      skill_band,
+      skill_min: opts.skillMin ?? 3,
+      skill_max: opts.skillMax ?? 7,
+      capacity: opts.capacity ?? 10,
+      notes: null,
+      status: 'scheduled',
+    })
+    .select('id')
+    .single();
+
+  if (error || !data?.id) {
+    return {
+      runId: null,
+      error: error ? new Error(error.message) : new Error('Run insert failed'),
+    };
+  }
+  track('run_created', {
+    court_id: opts.courtId,
+    sport: opts.sport,
+    scheduled_for_utc: opts.startsAt.toISOString(),
+  });
+  return { runId: data.id as string, error: null };
+}
+
+/** Removes the current user from a run. Emits `run_left` on success. */
+export async function leaveRun(runId: string, userId: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from('run_participants')
+    .delete()
+    .eq('run_id', runId)
+    .eq('user_id', userId);
+  if (error) return { error: new Error(error.message) };
+  track('run_left', { run_id: runId });
   return { error: null };
 }

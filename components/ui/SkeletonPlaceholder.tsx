@@ -5,7 +5,7 @@ import {
   type ReactNode,
 } from 'react';
 import { View } from 'react-native';
-import Animated, {
+import {
   Easing,
   useSharedValue,
   withRepeat,

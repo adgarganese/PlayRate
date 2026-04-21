@@ -14,6 +14,8 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { isSportEnabled } from '@/constants/sport-definitions';
+import { logger } from '@/lib/logger';
+import { UI_LOAD_FAILED } from '@/lib/user-facing-errors';
 import { geocodeAddress } from '@/lib/geocoding';
 import { devWarn } from '@/lib/logging';
 
@@ -73,13 +75,19 @@ export default function NewCourtScreen() {
         .order('name', { ascending: true });
 
       if (error) {
-        setError(error.message);
+        if (__DEV__) {
+          logger.warn('[new-court] load sports failed', { err: error });
+        }
+        setError(UI_LOAD_FAILED);
         return;
       }
 
       setSports((data || []).filter((s) => isSportEnabled(s.name)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load sports');
+      if (__DEV__) {
+        logger.warn('[new-court] load sports threw', { err });
+      }
+      setError(UI_LOAD_FAILED);
     } finally {
       setLoading(false);
     }
@@ -291,7 +299,10 @@ export default function NewCourtScreen() {
         { text: 'OK', onPress: () => router.replace(`/courts/${courtData.id}`) }
       ]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add court');
+      if (__DEV__) {
+        logger.warn('[new-court] submit threw', { err });
+      }
+      setError("We couldn't add this court. Please try again.");
       setSubmitting(false);
     }
   };

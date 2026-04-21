@@ -2,7 +2,13 @@
   "expo": {
     "name": "PlayRate",
     "slug": "playrate",
-    "version": "1.0.0",
+    "version": "1.1.0",
+    "runtimeVersion": "1.1.0",
+    "updates": {
+      "url": "https://u.expo.dev/ce8747bd-f927-488b-b71b-9db2f74f1508",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "playrate",
@@ -10,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.playrate.app",
-      "buildNumber": "11",
+      "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow PlayRate to use your camera to film or photograph highlights.",
         "NSLocationWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
@@ -21,6 +27,7 @@
     },
     "android": {
       "package": "com.playrate.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#0000FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -45,6 +52,9 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "expo-video",
+      "react-native-compressor",
+      "expo-secure-store",
       "expo-router",
       [
         "expo-location",
@@ -72,18 +82,22 @@
           "organization": "playrate",
           "project": "playrate"
         }
-      ]
+      ],
+      "expo-notifications",
+      "expo-updates"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
     "extra": {
-      "supabaseUrl": "https://nhqhkwvmludnsblimjeu.supabase.co",
-      "supabaseAnonKey": "sb_publishable_QPSR2PT0BZAvw8azqWqEdw_rYL05CpQ",
+      "supabaseUrl": "${EXPO_PUBLIC_SUPABASE_URL}",
+      "supabaseAnonKey": "${EXPO_PUBLIC_SUPABASE_ANON_KEY}",
       "googlePlacesApiKey": "${EXPO_PUBLIC_GOOGLE_PLACES_API_KEY}",
-      "posthogApiKey": "phc_SNw6eoNm6a7updgvp4m6ijU4KpGdMXiBq2fYiX691Z",
+      "googleGeocodingApiKey": "${EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY}",
+      "posthogApiKey": "${EXPO_PUBLIC_POSTHOG_API_KEY}",
       "posthogHost": "https://us.i.posthog.com",
+      "universalLinkHost": "${EXPO_PUBLIC_UNIVERSAL_LINK_HOST}",
       "router": {},
       "eas": {
         "projectId": "ce8747bd-f927-488b-b71b-9db2f74f1508"

@@ -7,10 +7,12 @@ import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Screen } from '@/components/ui/Screen';
 import { Fonts } from '@/constants/theme';
 
 export default function TabTwoScreen() {
   return (
+    <Screen>
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
       headerImage={
@@ -77,13 +79,11 @@ export default function TabTwoScreen() {
       </Collapsible>
       <Collapsible title="Animations">
         <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
+          This app uses{' '}
           <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
             react-native-reanimated
           </ThemedText>{' '}
-          library to create a waving hand animation.
+          for performant UI animations (see Expo and Reanimated docs for patterns).
         </ThemedText>
         {Platform.select({
           ios: (
@@ -95,6 +95,7 @@ export default function TabTwoScreen() {
         })}
       </Collapsible>
     </ParallaxScrollView>
+    </Screen>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Alert, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/TextInput';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
+import { getRateLimitUserMessage, isValidEmailFormat } from '@/lib/auth-validation';
+import { UI_GENERIC } from '@/lib/user-facing-errors';
+import { getPasswordResetRedirectTo } from '@/lib/password-reset-redirect';
 
 export default function ForgotPasswordScreen() {
   const params = useLocalSearchParams<{ email?: string }>();
@@ -18,29 +21,39 @@ export default function ForgotPasswordScreen() {
   const { colors } = useThemeColors();
 
   const handleSendResetEmail = async () => {
-    if (!email) {
+    if (!email.trim()) {
       Alert.alert('Error', 'Please enter your email address');
       return;
     }
 
-    setLoading(true);
-    
-    let redirectUrl: string;
-    if (Platform.OS === 'web') {
-      redirectUrl = 'http://localhost:8081/reset-password';
-    } else {
-      redirectUrl = 'playrate://reset-password';
+    if (!isValidEmailFormat(email)) {
+      Alert.alert('Error', 'Please enter a valid email address.');
+      return;
     }
-    
+
+    setLoading(true);
+
+    const redirectTo = getPasswordResetRedirectTo();
+    if (__DEV__ && redirectTo.startsWith('playrate://')) {
+      console.warn(
+        '[forgot-password] redirectTo uses a custom URL scheme; many email clients block or ignore it. ' +
+          'Set EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL to an HTTPS URL that serves web/password-reset-bridge.html (see PASSWORD-RESET-SETUP.md).'
+      );
+    }
+
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: redirectUrl,
+      redirectTo,
     });
 
     setLoading(false);
 
     if (error) {
-      let friendlyMessage = error.message;
-      if (error.message.includes('not found') || error.message.includes('does not exist')) {
+      const rate = getRateLimitUserMessage(error.message);
+      let friendlyMessage = rate ?? UI_GENERIC;
+      if (
+        !rate &&
+        (error.message.includes('not found') || error.message.includes('does not exist'))
+      ) {
         friendlyMessage = 'No account found with this email address.';
       }
       Alert.alert('Error', friendlyMessage);
@@ -101,6 +114,8 @@ export default function ForgotPasswordScreen() {
           <TouchableOpacity
             style={styles.linkButton}
             onPress={() => router.back()}
+            accessibilityRole="link"
+            accessibilityLabel="Back to sign in"
           >
             <Text style={[styles.linkText, { color: colors.primarySmallText }]}>Back to Sign In</Text>
           </TouchableOpacity>
@@ -110,9 +125,11 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
+  /** flex-start avoids vertical centering that fights the keyboard and creates misleading scroll range */
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: Spacing.lg,
   },
   form: {
     width: '100%',

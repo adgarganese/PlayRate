@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, memo, useMemo } from 'react';
 import {
   View,
   Text,
@@ -28,12 +28,56 @@ import {
 } from '@/lib/dms';
 import { getHighlightPreview, type HighlightPreview } from '@/lib/highlights';
 import { hapticMedium } from '@/lib/haptics';
+import { isRpcRateLimitError, RPC_RATE_LIMIT_USER_MESSAGE } from '@/lib/rpc-rate-limit';
+import { useResolvedMediaUri } from '@/hooks/useResolvedMediaUri';
+import { pickHighlightStillImageRaw } from '@/lib/highlight-still';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
+
+const SEND_DM_VIDEO_FALLBACK = '#0B0F1A';
+
+const SendDmHighlightThumb = memo(function SendDmHighlightThumb({ highlight }: { highlight: HighlightPreview }) {
+  const { colors } = useThemeColors();
+  const raw = useMemo(
+    () => pickHighlightStillImageRaw(highlight.thumbnail_url, highlight.media_url, highlight.media_type),
+    [highlight.thumbnail_url, highlight.media_url, highlight.media_type]
+  );
+  const uri = useResolvedMediaUri(raw);
+  const isVideo = highlight.media_type === 'video';
+
+  if (uri) {
+    return <Image source={{ uri }} style={styles.previewThumb} contentFit="cover" cachePolicy="memory-disk" />;
+  }
+
+  return (
+    <View
+      style={[
+        styles.previewThumb,
+        styles.previewThumbPlaceholder,
+        {
+          backgroundColor: isVideo ? SEND_DM_VIDEO_FALLBACK : colors.surface,
+        },
+      ]}
+    >
+      <IconSymbol
+        name={isVideo ? 'play.rectangle.fill' : 'photo'}
+        size={24}
+        color={isVideo ? 'rgba(255,255,255,0.88)' : colors.textMuted}
+      />
+      {isVideo && highlight.caption?.trim() ? (
+        <Text numberOfLines={2} style={styles.previewThumbCaption}>
+          {highlight.caption.trim()}
+        </Text>
+      ) : null}
+    </View>
+  );
+});
 
 export default function SendHighlightDmScreen() {
   const { highlightId } = useLocalSearchParams<{ highlightId: string }>();
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [highlight, setHighlight] = useState<HighlightPreview | null>(null);
   const [users, setUsers] = useState<MessageableUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,8 +132,15 @@ export default function SendHighlightDmScreen() {
       hapticMedium();
       Alert.alert('Sent', 'Highlight sent.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error) {
-      if (__DEV__) console.warn('[highlights-send-dm]', error);
-      Alert.alert('Error', 'Could not send. Please try again.');
+      if (
+        isRpcRateLimitError(error) ||
+        (error instanceof Error && error.message === RPC_RATE_LIMIT_USER_MESSAGE)
+      ) {
+        Alert.alert('Slow down', RPC_RATE_LIMIT_USER_MESSAGE);
+      } else {
+        if (__DEV__) console.warn('[highlights-send-dm]', error);
+        Alert.alert('Error', 'Could not send. Please try again.');
+      }
     } finally {
       setSending(false);
     }
@@ -110,16 +161,7 @@ export default function SendHighlightDmScreen() {
           {highlight && (
             <View style={[styles.previewCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
               <View style={styles.previewRow}>
-                {(highlight.thumbnail_url || highlight.media_url) ? (
-                  <Image
-                    source={{ uri: highlight.thumbnail_url || highlight.media_url }}
-                    style={styles.previewThumb}
-                  />
-                ) : (
-                  <View style={[styles.previewThumb, styles.previewThumbPlaceholder, { backgroundColor: colors.surface }]}>
-                    <IconSymbol name="play.rectangle.fill" size={24} color={colors.textMuted} />
-                  </View>
-                )}
+                <SendDmHighlightThumb highlight={highlight} />
                 <View style={styles.previewBody}>
                   <Text style={[styles.previewCreator, { color: colors.text }]} numberOfLines={1}>
                     {highlight.profile_name || highlight.profile_username || 'Unknown'}
@@ -147,6 +189,7 @@ export default function SendHighlightDmScreen() {
             data={filtered}
             keyExtractor={(item) => item.user_id}
             style={styles.list}
+            contentContainerStyle={{ paddingBottom: Spacing.md }}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View style={styles.empty}>
@@ -181,7 +224,7 @@ export default function SendHighlightDmScreen() {
               );
             }}
           />
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: scrollBottomPadding }]}>
             <Button
               title={sending ? 'Sending…' : 'Send'}
               onPress={handleSend}
@@ -206,8 +249,16 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
   },
   previewRow: { flexDirection: 'row', alignItems: 'center' },
-  previewThumb: { width: 56, height: 56, borderRadius: Radius.xs },
-  previewThumbPlaceholder: { justifyContent: 'center', alignItems: 'center' },
+  previewThumb: { width: 56, height: 56, borderRadius: Radius.xs, overflow: 'hidden' },
+  previewThumbPlaceholder: { justifyContent: 'center', alignItems: 'center', padding: 4 },
+  previewThumbCaption: {
+    ...Typography.mutedSmall,
+    fontSize: 9,
+    lineHeight: 11,
+    color: 'rgba(255,255,255,0.72)',
+    textAlign: 'center',
+    marginTop: 4,
+  },
   previewBody: { flex: 1, marginLeft: Spacing.md, minWidth: 0 },
   previewCreator: { ...Typography.bodyBold },
   previewCaption: { ...Typography.mutedSmall, marginTop: 2 },
@@ -236,6 +287,6 @@ const styles = StyleSheet.create({
   userName: { ...Typography.bodyBold },
   userUsername: { ...Typography.mutedSmall },
   pressed: { opacity: 0.8 },
-  footer: { padding: Spacing.lg, paddingBottom: Spacing.xl },
+  footer: { padding: Spacing.lg },
   sendButton: {},
 });

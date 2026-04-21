@@ -12,6 +12,7 @@ type RecommendedFriendItemProps = {
   name: string | null;
   username: string | null;
   avatarUrl: string | null;
+  tierRepLevel?: string | null;
   subtitle?: string;
   onPress: () => void;
 };
@@ -21,6 +22,7 @@ export function RecommendedFriendItem({
   name,
   username,
   avatarUrl,
+  tierRepLevel,
   subtitle = 'Suggested',
   onPress,
 }: RecommendedFriendItemProps) {
@@ -78,6 +80,7 @@ export function RecommendedFriendItem({
     <ListItem
       title={name || 'Unknown'}
       subtitle={`@${username || 'user'} • ${subtitle}`}
+      tierRepLevel={tierRepLevel}
       showChevron
       onPress={onPress}
       leftContent={

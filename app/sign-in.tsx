@@ -11,12 +11,15 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { PhoneInput, PhoneInputRef } from '@/components/PhoneInput';
 import { OtpInput } from '@/components/OtpInput';
 import { PlayRatePlaceholder } from '@/components/PlayRatePlaceholder';
+import { AuthAmbientBackdrop } from '@/components/ui/AuthAmbientBackdrop';
 import { useThemeColors } from '@/contexts/theme-context';
 import { useResendTimer } from '@/hooks/use-resend-timer';
 import { Spacing, Typography } from '@/constants/theme';
 import { FEATURE_PHONE_AUTH } from '@/constants/features';
 import { track } from '@/lib/analytics';
-import { logCaughtError } from '@/lib/auth-diagnostics';
+import { logAuthErrorSafe, logCaughtError } from '@/lib/auth-diagnostics';
+import { getRateLimitUserMessage, isValidEmailFormat } from '@/lib/auth-validation';
+import { UI_GENERIC } from '@/lib/user-facing-errors';
 
 type AuthMethod = 'email' | 'phone';
 
@@ -43,22 +46,32 @@ export default function SignInScreen() {
       return;
     }
 
+    if (!isValidEmailFormat(email)) {
+      Alert.alert('Sign In', 'Please enter a valid email address.');
+      return;
+    }
+
     setLoading(true);
     try {
       const { error } = await signIn(email, password);
       setLoading(false);
 
       if (error) {
-        if (__DEV__) logCaughtError(error);
-        let friendlyMessage = error.message;
-        if (error.message.includes('Invalid login credentials')) {
+        if (__DEV__) logAuthErrorSafe(error);
+        const rate = getRateLimitUserMessage(error.message);
+        let friendlyMessage: string;
+        if (rate) {
+          friendlyMessage = rate;
+        } else if (error.message.includes('Invalid login credentials')) {
           friendlyMessage = 'Email or password is incorrect. Please try again.';
         } else if (error.message.includes('Email not confirmed')) {
           friendlyMessage = 'Please check your email and confirm your account first.';
+        } else {
+          friendlyMessage = UI_GENERIC;
         }
         Alert.alert('Sign In', friendlyMessage);
       } else {
-        track('login_completed', { method: 'email' });
+        track('sign_in_completed', { method: 'email' });
         router.replace('/(tabs)');
       }
     } catch (err) {
@@ -89,11 +102,10 @@ export default function SignInScreen() {
     setLoading(false);
 
     if (error) {
-      let friendlyMessage = error.message;
-      if (error.message.includes('invalid')) {
+      const rate = getRateLimitUserMessage(error.message);
+      let friendlyMessage = rate ?? UI_GENERIC;
+      if (!rate && error.message.toLowerCase().includes('invalid')) {
         friendlyMessage = 'Please enter a valid phone number';
-      } else if (error.message.includes('rate limit')) {
-        friendlyMessage = 'Too many requests. Please wait a moment and try again.';
       }
       setPhoneError(friendlyMessage);
     } else {
@@ -120,12 +132,17 @@ export default function SignInScreen() {
     setLoading(false);
 
     if (error) {
-      let friendlyMessage = error.message;
-      if (error.message.includes('invalid') || error.message.includes('expired')) {
+      const rate = getRateLimitUserMessage(error.message);
+      let friendlyMessage = rate ?? UI_GENERIC;
+      if (
+        !rate &&
+        (error.message.includes('invalid') || error.message.includes('expired'))
+      ) {
         friendlyMessage = 'Invalid or expired code. Please try again.';
       }
       setOtpError(friendlyMessage);
     } else {
+      track('sign_in_completed', { method: 'phone' });
       router.replace('/(tabs)');
     }
   };
@@ -155,7 +172,12 @@ export default function SignInScreen() {
   }, [authMethod]);
 
   return (
-    <KeyboardScreen contentContainerStyle={styles.scrollContent}>
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      <AuthAmbientBackdrop />
+      <KeyboardScreen
+        style={styles.keyboardTransparent}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.logoContainer}>
           <PlayRatePlaceholder />
         </View>
@@ -205,6 +227,7 @@ export default function SignInScreen() {
                 title="Sign In"
                 onPress={handleEmailSignIn}
                 variant="primary"
+                primaryGradient
                 loading={loading}
                 disabled={loading}
               />
@@ -225,6 +248,7 @@ export default function SignInScreen() {
                     title="Send Code"
                     onPress={handlePhoneSendCode}
                     variant="primary"
+                    primaryGradient
                     loading={loading}
                     disabled={loading || resendTimer.isActive}
                   />
@@ -235,7 +259,11 @@ export default function SignInScreen() {
                     <Text style={[styles.phoneDisplayText, { color: colors.textMuted }]}>
                       Code sent to {phoneInputRef.current?.getE164Format() || phone}
                     </Text>
-                    <TouchableOpacity onPress={resetPhoneFlow}>
+                    <TouchableOpacity
+                      onPress={resetPhoneFlow}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change phone number"
+                    >
                       <Text style={[styles.changePhoneText, { color: colors.primarySmallText }]}>Change</Text>
                     </TouchableOpacity>
                   </View>
@@ -251,6 +279,13 @@ export default function SignInScreen() {
                     style={styles.resendButton}
                     onPress={handleResendCode}
                     disabled={resendTimer.isActive || loading}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      resendTimer.isActive
+                        ? `Resend code, available in ${resendTimer.seconds} seconds`
+                        : 'Resend verification code'
+                    }
+                    accessibilityState={{ disabled: resendTimer.isActive || loading }}
                   >
                     <Text style={[
                       styles.resendText,
@@ -271,6 +306,8 @@ export default function SignInScreen() {
               <TouchableOpacity
                 style={styles.linkButton}
                 onPress={() => router.push('/forgot-password')}
+                accessibilityRole="link"
+                accessibilityLabel="Forgot password, reset password"
               >
                 <Text style={[styles.linkText, { color: colors.textMuted }]}>
                   Forgot password? <Text style={[styles.linkTextBold, { color: colors.primarySmallText }]}>Reset it</Text>
@@ -282,17 +319,26 @@ export default function SignInScreen() {
           <TouchableOpacity
             style={styles.linkButton}
             onPress={() => router.push('/sign-up')}
+            accessibilityRole="link"
+            accessibilityLabel="Sign up, create an account"
           >
             <Text style={[styles.linkText, { color: colors.textMuted }]}>
               {`Don't have an account? `}<Text style={[styles.linkTextBold, { color: colors.primarySmallText }]}>Sign Up</Text>
             </Text>
           </TouchableOpacity>
         </View>
-    </KeyboardScreen>
+      </KeyboardScreen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  keyboardTransparent: {
+    backgroundColor: 'transparent',
+  },
   scrollContent: {
     flexGrow: 1,
     paddingTop: Spacing.xl * 2,

@@ -27,6 +27,8 @@ import {
   type CourtPhoto
 } from '@/lib/courts';
 import { fetchIsStaff, isCourtCreatedByUser } from '@/lib/court-permissions';
+import { createScheduledRun } from '@/lib/runs';
+import { Screen } from '@/components/ui/Screen';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
@@ -34,7 +36,8 @@ import { GradientCard } from '@/components/ui/GradientCard';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/Button';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
-import { ErrorScreen } from '@/components/ui/ErrorScreen';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { CourtChat } from '@/components/CourtChat';
 import { AppText } from '@/components/ui/AppText';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -45,15 +48,18 @@ import { GOLD, Spacing, Typography, Radius } from '@/constants/theme';
 import { BETA_HIDE_LEADERBOARD } from '@/constants/features';
 import { hapticLight, hapticMedium, playSubmitBuzz } from '@/lib/haptics';
 import { track } from '@/lib/analytics';
+import { playrateCourtUrl } from '@/lib/deep-links';
 import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
 import { logger } from '@/lib/logger';
 import {
   UI_CHECK_IN_FAILED,
-  UI_COURT_LOAD_FAILED,
   UI_FOLLOW_FAILED,
   UI_RATING_SAVE_FAILED,
   UI_SUGGESTION_FAILED,
 } from '@/lib/user-facing-errors';
+import { isRpcRateLimitError, RPC_RATE_LIMIT_USER_MESSAGE } from '@/lib/rpc-rate-limit';
+import { TierBadge } from '@/components/ui/TierBadge';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 const SECTION_GAP = Spacing.lg;
 
@@ -64,10 +70,12 @@ export default function CourtDetailScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
+  const modalScrollBottomPad = useScrollContentBottomPadding('modal');
   const scrollRef = useRef<ScrollView>(null);
   const [court, setCourt] = useState<Court | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [courtLoadError, setCourtLoadError] = useState(false);
+  const [courtMissing, setCourtMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [togglingFollow, setTogglingFollow] = useState(false);
   
@@ -99,6 +107,7 @@ export default function CourtDetailScreen() {
   const [showPhotosModal, setShowPhotosModal] = useState(false);
   // Rating modal (opened from main card rating row)
   const [showRatingModal, setShowRatingModal] = useState(false);
+  const [schedulingRun, setSchedulingRun] = useState(false);
 
   // Creator / staff: direct edit entry; others: suggest modal (RLS enforces on server).
   const [isStaff, setIsStaff] = useState(false);
@@ -160,22 +169,23 @@ export default function CourtDetailScreen() {
     if (!courtId) return;
 
     setLoading(true);
-    setError(null);
+    setCourtLoadError(false);
+    setCourtMissing(false);
 
     try {
       const courtData = await fetchCourtById(courtId);
       if (!courtData) {
-        setError('Court not found.');
+        setCourt(null);
+        setCourtMissing(true);
         return;
       }
       setCourt(courtData);
       const props: Record<string, unknown> = { court_id: courtId, court_name: courtData.name };
       track('court_opened', props);
     } catch (err) {
-      if (__DEV__) {
-        logger.warn('[court-detail] loadCourt failed', { err });
-      }
-      setError(UI_COURT_LOAD_FAILED);
+      logger.error('[court-detail] loadCourt failed', { err, courtId });
+      setCourtLoadError(true);
+      setCourtMissing(false);
     } finally {
       setLoading(false);
     }
@@ -192,6 +202,31 @@ export default function CourtDetailScreen() {
     }
   };
 
+
+  const handleScheduleQuickRun = async () => {
+    if (!user?.id || !court?.id) return;
+    setSchedulingRun(true);
+    try {
+      const sport = court.sports?.[0]?.trim() || 'unknown';
+      const startsAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const endsAt = new Date(startsAt.getTime() + 90 * 60 * 1000);
+      const { runId, error } = await createScheduledRun({
+        courtId: court.id,
+        creatorId: user.id,
+        sport,
+        startsAt,
+        endsAt,
+        skillBand: 'balanced',
+      });
+      if (error || !runId) {
+        Alert.alert('Schedule run', 'We could not create this run. Try again in a moment.');
+        return;
+      }
+      router.push(`/courts/run/${runId}` as any);
+    } finally {
+      setSchedulingRun(false);
+    }
+  };
 
   const handleToggleFollow = async () => {
     if (!user) {
@@ -331,8 +366,7 @@ export default function CourtDetailScreen() {
   const handleShare = async () => {
     if (!court) return;
     const addressPart = court.address ? ` — ${court.address}` : '';
-    const deepLink = `playrate://courts/${court.id}`;
-    const message = `Check out ${court.name}${addressPart}. ${deepLink}`;
+    const message = `Check out ${court.name}${addressPart}. ${playrateCourtUrl(court.id)}`;
     try {
       await Share.share({
         title: 'Share Court',
@@ -447,6 +481,7 @@ export default function CourtDetailScreen() {
       });
 
       await submitCourtRating(courtId, user.id, selectedRating);
+      track('court_rated', { court_id: courtId, rating_value: selectedRating });
       await playSubmitBuzz();
       
       // Reload to ensure consistency
@@ -558,7 +593,7 @@ export default function CourtDetailScreen() {
       const result = await checkInCourt(courtId);
 
       if (result.success) {
-        track('check_in_completed', { court_id: courtId });
+        track('court_checked_in', { court_id: courtId });
         setUserCheckIn(new Date().toISOString());
         setTodayCheckInCount(prev => prev + 1);
 
@@ -577,7 +612,12 @@ export default function CourtDetailScreen() {
       if (__DEV__) {
         logger.warn('[court-detail] check-in failed', { err });
       }
-      Alert.alert('Error', UI_CHECK_IN_FAILED);
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === RPC_RATE_LIMIT_USER_MESSAGE || isRpcRateLimitError(err)) {
+        Alert.alert('Slow down', RPC_RATE_LIMIT_USER_MESSAGE);
+      } else {
+        Alert.alert('Error', UI_CHECK_IN_FAILED);
+      }
     } finally {
       setCheckingIn(false);
     }
@@ -647,13 +687,31 @@ export default function CourtDetailScreen() {
     return <LoadingScreen message="Loading court..." />;
   }
 
-  if (error || !court) {
+  if (courtLoadError) {
     return (
-      <ErrorScreen
-        message={error || 'Court not found.'}
-        onRetry={() => loadCourt()}
-        retryLabel="Retry"
-      />
+      <Screen>
+        <Header title="Court" />
+        <View style={{ flex: 1, justifyContent: 'center', padding: SECTION_GAP }}>
+          <ErrorState onRetry={() => void loadCourt()} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (courtMissing || !court) {
+    return (
+      <Screen>
+        <Header title="Court" />
+        <View style={{ flex: 1, justifyContent: 'center', padding: SECTION_GAP }}>
+          <EmptyState
+            title="This court isn't available"
+            subtitle="It may have been removed or you may not have access."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+            icon="sportscourt.fill"
+          />
+        </View>
+      </Screen>
     );
   }
 
@@ -785,82 +843,117 @@ export default function CourtDetailScreen() {
                 </View>
               )}
 
-              {/* 4. ACTIONS GRID */}
-              <View style={styles.actionsGrid}>
-                <ProfileNavPill
-                  icon="map.fill"
-                  label="Directions"
-                  onPress={handleDirections}
-                  style={styles.actionGridItem}
-                  showChevron={false}
-                  iconSize={22}
-                />
-                <ProfileNavPill
-                  icon="square.and.arrow.up"
-                  label="Share"
-                  onPress={handleShare}
-                  style={styles.actionGridItem}
-                  showChevron={false}
-                  iconSize={22}
-                />
-                <Pressable
-                  onPress={() => {
-                    if (!user) {
-                      Alert.alert('Sign In Required', 'You must be signed in to share courts via DM.');
-                      return;
-                    }
-                    router.push({ pathname: '/courts/send-dm', params: { courtId: courtId ?? '' } } as any);
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityLabel="Send via DM"
-                  accessibilityRole="button"
-                  style={[styles.actionGridItem, styles.dmIconButton, { borderColor: colors.border }]}
-                >
-                  <IconSymbol name="paperplane.fill" size={22} color={colors.textMuted} />
-                </Pressable>
-                {user && !userCheckIn && (
+              {/* 4. ACTIONS — single row: Directions, Share, check-in / DM / checked-in, optional Suggest, DM when signed in */}
+              <View style={styles.actionsGridWrap}>
+                <View style={styles.actionsRow}>
                   <ProfileNavPill
-                    icon="checkmark.circle.fill"
-                    label="Check In"
-                    onPress={handleCheckIn}
-                    loading={checkingIn}
-                    disabled={checkingIn}
+                    icon="map.fill"
+                    label="Directions"
+                    onPress={handleDirections}
                     style={styles.actionGridItem}
-                    accent="checkIn"
+                    showChevron={false}
+                    iconSize={22}
+                    layout="vertical"
+                  />
+                  <ProfileNavPill
+                    icon="square.and.arrow.up"
+                    label="Share"
+                    onPress={handleShare}
+                    style={styles.actionGridItem}
+                    showChevron={false}
+                    iconSize={22}
+                    layout="vertical"
+                  />
+                  {!user ? (
+                    <ProfileNavPill
+                      icon="paperplane.fill"
+                      label="Send via DM"
+                      onPress={() => {
+                        Alert.alert('Sign In Required', 'You must be signed in to share courts via DM.');
+                      }}
+                      style={styles.actionGridItem}
+                      showChevron={false}
+                      iconSize={22}
+                      layout="vertical"
+                      accessibilityLabel="Send via DM"
+                      accessibilityRole="button"
+                    />
+                  ) : !userCheckIn ? (
+                    <ProfileNavPill
+                      icon="checkmark.circle.fill"
+                      label="Check In"
+                      onPress={handleCheckIn}
+                      loading={checkingIn}
+                      disabled={checkingIn}
+                      style={styles.actionGridItem}
+                      accent="checkIn"
+                      showChevron={false}
+                      iconSize={22}
+                      layout="vertical"
+                    />
+                  ) : (
+                    <View style={[styles.actionGridItem, styles.checkedInIndicator, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                      <View style={styles.checkedInIconWrap}>
+                        <IconSymbol name="checkmark.circle.fill" size={22} color={colors.accentOrange} />
+                      </View>
+                      <Text style={[styles.checkedInText, { color: colors.text }]} numberOfLines={2}>
+                        Checked in · {formatCheckInTime(userCheckIn)}
+                      </Text>
+                    </View>
+                  )}
+                  {user && showSuggestEdit ? (
+                    <ProfileNavPill
+                      icon="pencil"
+                      label="Suggest Edit"
+                      onPress={() => setShowSuggestModal(true)}
+                      style={styles.actionGridItem}
+                      showChevron={false}
+                      iconSize={22}
+                      layout="vertical"
+                    />
+                  ) : null}
+                  {user ? (
+                    <ProfileNavPill
+                      icon="paperplane.fill"
+                      label="Send via DM"
+                      onPress={() => {
+                        router.push({ pathname: '/courts/send-dm', params: { courtId: courtId ?? '' } } as any);
+                      }}
+                      style={styles.actionGridItem}
+                      showChevron={false}
+                      iconSize={22}
+                      layout="vertical"
+                      accessibilityLabel="Send via DM"
+                      accessibilityRole="button"
+                    />
+                  ) : null}
+                </View>
+              </View>
+
+              {canDirectEditCourt && (
+                <View style={styles.editSuggestRow}>
+                  <ProfileNavPill
+                    icon="pencil"
+                    label="Edit court"
+                    onPress={() => router.push(`/courts/edit/${courtId}` as any)}
+                    style={styles.editSuggestPill}
                     showChevron={false}
                     iconSize={22}
                   />
-                )}
-                {user && userCheckIn && (
-                  <View style={[styles.actionGridItem, styles.checkedInIndicator, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                    <IconSymbol name="checkmark.circle.fill" size={22} color={colors.accentOrange} />
-                    <Text style={[styles.checkedInText, { color: colors.text }]} numberOfLines={1}>
-                      Checked in · {formatCheckInTime(userCheckIn)}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {(canDirectEditCourt || showSuggestEdit) && (
-                <View style={styles.editSuggestRow}>
-                  {canDirectEditCourt && (
-                    <ProfileNavPill
-                      icon="pencil"
-                      label="Edit court"
-                      onPress={() => router.push(`/courts/edit/${courtId}` as any)}
-                      style={styles.editSuggestPill}
-                    />
-                  )}
-                  {showSuggestEdit && (
-                    <ProfileNavPill
-                      icon="envelope.fill"
-                      label="Suggest an edit"
-                      onPress={() => setShowSuggestModal(true)}
-                      style={styles.editSuggestPill}
-                      showChevron={false}
-                      iconSize={22}
-                    />
-                  )}
+                  <ProfileNavPill
+                    icon="figure.run"
+                    label="Schedule run"
+                    onPress={() => {
+                      void handleScheduleQuickRun();
+                    }}
+                    style={styles.editSuggestPill}
+                    showChevron={false}
+                    iconSize={22}
+                    loading={schedulingRun}
+                    disabled={schedulingRun}
+                    accessibilityLabel="Schedule a run at this court"
+                    accessibilityRole="button"
+                  />
                 </View>
               )}
 
@@ -995,9 +1088,12 @@ export default function CourtDetailScreen() {
                       </AppText>
                     </View>
                     <View style={styles.leaderboardInfo}>
-                      <AppText variant="bodyBold" color="text">
-                        {entry.display_name || entry.username || 'Anonymous'}
-                      </AppText>
+                      <View style={styles.leaderboardNameRow}>
+                        <AppText variant="bodyBold" color="text" numberOfLines={1} style={styles.leaderboardNameText}>
+                          {entry.display_name || entry.username || 'Anonymous'}
+                        </AppText>
+                        <TierBadge tierName={entry.rep_level} size="sm" />
+                      </View>
                       <AppText variant="mutedSmall" color="textMuted">
                         {entry.total_check_ins} {entry.total_check_ins === 1 ? 'check-in' : 'check-ins'}
                       </AppText>
@@ -1034,7 +1130,10 @@ export default function CourtDetailScreen() {
                 <IconSymbol name="xmark.circle.fill" size={24} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.modalList}>
+            <ScrollView
+              style={styles.modalList}
+              contentContainerStyle={{ paddingBottom: modalScrollBottomPad }}
+            >
               {loadingLeaderboard ? (
                 <AppText variant="muted" color="textMuted" style={styles.modalLoadingText}>Loading...</AppText>
               ) : leaderboard.length === 0 ? (
@@ -1058,9 +1157,12 @@ export default function CourtDetailScreen() {
                       </AppText>
                     </View>
                     <View style={styles.modalLeaderboardInfo}>
-                      <AppText variant="bodyBold" color="text">
-                        {entry.display_name || entry.username || 'Anonymous'}
-                      </AppText>
+                      <View style={styles.leaderboardNameRow}>
+                        <AppText variant="bodyBold" color="text" numberOfLines={1} style={styles.leaderboardNameText}>
+                          {entry.display_name || entry.username || 'Anonymous'}
+                        </AppText>
+                        <TierBadge tierName={entry.rep_level} size="sm" />
+                      </View>
                       <AppText variant="mutedSmall" color="textMuted">
                         {entry.total_check_ins} {entry.total_check_ins === 1 ? 'check-in' : 'check-ins'}
                       </AppText>
@@ -1403,43 +1505,44 @@ const styles = StyleSheet.create({
     ...Typography.mutedSmall,
     fontSize: 12,
   },
-  actionsGrid: {
+  actionsGridWrap: {
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  actionsRow: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
     gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-    alignItems: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionGridItem: {
     flex: 1,
     minWidth: 0,
   },
-  dmIconButton: {
-    flexDirection: 'row',
+  checkedInIconWrap: {
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: 999,
-    borderWidth: 1,
-    minWidth: 0,
-    flex: 1,
   },
   checkedInIndicator: {
     flex: 1,
     minWidth: 0,
-    flexDirection: 'row',
+    alignSelf: 'stretch',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.xs,
+    gap: 6,
     paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.xs,
     borderRadius: Radius.sm,
     borderWidth: 1,
   },
   checkedInText: {
     ...Typography.mutedSmall,
-    flex: 1,
+    fontWeight: '500',
+    textAlign: 'center',
+    width: '100%',
   },
   editSuggestRow: {
     flexDirection: 'row',
@@ -1756,6 +1859,16 @@ const styles = StyleSheet.create({
   leaderboardInfo: {
     flex: 1,
     marginLeft: Spacing.md,
+  },
+  leaderboardNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  leaderboardNameText: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   viewFullButton: {
     marginTop: Spacing.md,

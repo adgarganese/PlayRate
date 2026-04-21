@@ -15,7 +15,6 @@ import { supabase } from '@/lib/supabase';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
-import { Button } from '@/components/ui/Button';
 import { ProfilePicture } from '@/components/ProfilePicture';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
@@ -31,7 +30,10 @@ import { AnimatedListItem } from '@/components/ui/AnimatedListItem';
 import { logger } from '@/lib/logger';
 import { hapticSuccess } from '@/lib/haptics';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyInboxIllustration } from '@/components/illustrations';
+import { TierBadge } from '@/components/ui/TierBadge';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type Tab = 'messages' | 'notifications';
 
@@ -72,9 +74,12 @@ const ConversationRow = React.memo(function ConversationRow({
       <ProfilePicture avatarUrl={item.other_user_avatar_url} size={48} editable={false} />
       <View style={styles.convBody}>
         <View style={styles.convRowTop}>
-          <Text style={[styles.convName, { color: colors.text }]} numberOfLines={1}>
-            {displayName}
-          </Text>
+          <View style={styles.convNameRow}>
+            <Text style={[styles.convName, { color: colors.text }]} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <TierBadge tierName={item.other_user_rep_level} size="sm" />
+          </View>
           <Text style={[styles.convTime, { color: colors.textMuted }]}>
             {formatTime(item.last_message_at ?? item.last_message_created_at)}
           </Text>
@@ -100,18 +105,22 @@ function MessagesTab() {
   const { user } = useAuth();
   const router = useRouter();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [conversations, setConversations] = useState<ConversationWithMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const load = useCallback(async (): Promise<boolean> => {
     if (!user?.id) {
       setConversations([]);
+      setLoadError(false);
       setLoading(false);
       setRefreshing(false);
       return false;
     }
+    setLoadError(false);
     try {
       const list = await listConversations(user.id);
       const deduped = list.filter((c, i) => list.findIndex((x) => x.id === c.id) === i);
@@ -119,6 +128,7 @@ function MessagesTab() {
       return true;
     } catch (e) {
       logger.error('List conversations failed', { err: e, screen: 'inbox', tab: 'messages' });
+      setLoadError(true);
       setConversations([]);
       return false;
     } finally {
@@ -194,13 +204,21 @@ function MessagesTab() {
     );
   }
 
+  if (loadError) {
+    return (
+      <View style={[styles.tabContent, styles.centered]}>
+        <ErrorState onRetry={() => void load()} />
+      </View>
+    );
+  }
+
   if (conversations.length === 0) {
     return (
       <View style={[styles.tabContent, styles.centered]}>
         <EmptyState
-          title="No messages yet"
-          subtitle="Find players and start a conversation."
-          actionLabel="Find Players"
+          title="No conversations yet. Find athletes to message!"
+          subtitle="Browse athletes and start a chat from their profile."
+          actionLabel="Find athletes"
           onAction={() => router.push('/profiles')}
           illustration={<EmptyInboxIllustration />}
         />
@@ -212,7 +230,7 @@ function MessagesTab() {
     <FlatList
       data={conversations}
       keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={[styles.listContent, { paddingBottom: scrollBottomPadding }]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -284,19 +302,23 @@ function NotificationsTab() {
   const { user } = useAuth();
   const router = useRouter();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [list, setList] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const load = useCallback(async (): Promise<boolean> => {
     if (!user?.id) {
       setList([]);
+      setLoadError(false);
       setLoading(false);
       setRefreshing(false);
       return false;
     }
+    setLoadError(false);
     try {
       const data = await listNotifications(user.id);
       const arr = data || [];
@@ -305,6 +327,7 @@ function NotificationsTab() {
       return true;
     } catch (e) {
       logger.error('List notifications failed', { err: e, screen: 'inbox', tab: 'notifications' });
+      setLoadError(true);
       setList([]);
       return false;
     } finally {
@@ -406,6 +429,14 @@ function NotificationsTab() {
     );
   }
 
+  if (loadError) {
+    return (
+      <View style={[styles.tabContent, styles.centered]}>
+        <ErrorState onRetry={() => void load()} />
+      </View>
+    );
+  }
+
   const unreadCount = list.filter((n) => !n.read_at).length;
 
   return (
@@ -423,13 +454,17 @@ function NotificationsTab() {
       )}
       {list.length === 0 ? (
         <View style={[styles.centered, { flex: 1 }]}>
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>No notifications yet.</Text>
+          <EmptyState
+            title="You're all caught up!"
+            subtitle="When someone follows you, likes a highlight, or messages you, it will show up here."
+            icon="bell.fill"
+          />
         </View>
       ) : (
         <FlatList
           data={list}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: scrollBottomPadding }]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -526,9 +561,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: Spacing.xl,
   },
-  listContent: {
-    paddingBottom: Spacing.xl,
-  },
+  listContent: {},
   convRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -549,9 +582,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 2,
   },
+  convNameRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: Spacing.sm,
+    minWidth: 0,
+  },
   convName: {
     ...Typography.bodyBold,
-    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
   },
   convTime: {
     ...Typography.mutedSmall,
@@ -578,11 +620,6 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 11,
     fontWeight: '600',
-  },
-  emptyTitle: {
-    ...Typography.h3,
-    marginBottom: Spacing.sm,
-    textAlign: 'center',
   },
   emptyText: {
     ...Typography.muted,

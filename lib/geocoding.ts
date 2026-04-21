@@ -1,19 +1,24 @@
-import { googlePlacesApiKey } from '@/lib/config';
+import { googleGeocodingApiKey } from '@/lib/config';
+import { logger } from '@/lib/logger';
 
 /**
- * Geocode an address using Google Geocoding API
- * @param address - The address string to geocode
- * @returns Promise with lat/lng coordinates or null if geocoding fails
+ * Geocode an address using Google Geocoding API (REST).
+ * The key is sent as a query parameter from the app; anyone with the bundle can extract it.
+ * Prefer API key restrictions in Google Cloud; for stronger protection, proxy geocoding on your backend.
  */
 export async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
   if (!address || !address.trim()) {
     return null;
   }
 
-  const apiKey = googlePlacesApiKey ?? '';
+  const apiKey = googleGeocodingApiKey ?? '';
 
   if (!apiKey) {
-    if (__DEV__) console.warn('[geocoding] Google Places API key not found. Geocoding will fail.');
+    if (__DEV__) {
+      console.warn(
+        '[geocoding] No Geocoding API key (EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY or EXPO_PUBLIC_GOOGLE_PLACES_API_KEY). Geocoding disabled.'
+      );
+    }
     return null;
   }
 
@@ -28,10 +33,15 @@ export async function geocodeAddress(address: string): Promise<{ lat: number; ln
       const location = data.results[0].geometry.location;
       return { lat: location.lat, lng: location.lng };
     }
-    if (__DEV__) console.warn('[geocoding] Failed:', data.status, data.error_message || '');
+    if (data.status !== 'ZERO_RESULTS') {
+      logger.warn('[geocoding] Geocode API non-OK', {
+        status: data.status,
+        errorMessage: data.error_message || '',
+      });
+    }
     return null;
   } catch (error) {
-    if (__DEV__) console.error('[geocoding] Error:', error);
+    logger.error('[geocoding] Request failed', { err: error });
     return null;
   }
 }

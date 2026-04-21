@@ -3,8 +3,10 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { sendPhTestEvent } from '../lib/analytics';
 import { Button } from './ui/Button';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 export default function ConnectionTest() {
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [status, setStatus] = useState<'testing' | 'success' | 'error'>('testing');
   const [message, setMessage] = useState<string>('Testing connection...');
   const [details, setDetails] = useState<string[]>([]);
@@ -78,7 +80,7 @@ export default function ConnectionTest() {
   }, []);
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: scrollBottomPadding }}>
       <View style={styles.content}>
         <Text style={styles.title}>Supabase Connection Test</Text>
         

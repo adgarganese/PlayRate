@@ -1,5 +1,8 @@
+import '@/lib/sentry-bootstrap';
 import { useEffect } from 'react';
+import { View } from 'react-native';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
@@ -9,7 +12,8 @@ import 'react-native-reanimated';
 
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { AppErrorBoundary } from '@/components/AppErrorBoundary';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ThemeProvider } from '@/contexts/theme-context';
 import { BadgeProvider } from '@/contexts/badge-context';
@@ -23,10 +27,21 @@ import {
   POSTHOG_API_KEY,
   POSTHOG_HOST,
 } from '@/lib/analytics';
-import { initSentry, setSentryUser, setSentryRoute, isSentryEnabled, Sentry } from '@/lib/sentry';
-
-// Enable Sentry only when EXPO_PUBLIC_SENTRY_DSN is set (e.g. EAS production/preview builds)
-initSentry();
+import { setSentryUser, setSentryRoute, isSentryEnabled, Sentry } from '@/lib/sentry';
+import { logBootFallback } from '@/lib/boot-log';
+import { mergeQueryAndHash, isAuthCallbackUrl } from '@/lib/parse-auth-url';
+import {
+  isInboundAppContentLink,
+  resolveAppPathFromInboundLink,
+} from '@/lib/deep-links';
+import { supabase } from '@/lib/supabase';
+import { hideSplashOnce } from '@/lib/splash-control';
+import { logger } from '@/lib/logger';
+import {
+  registerForPushNotifications,
+  subscribeForegroundPushResume,
+  subscribeToPushNotificationResponses,
+} from '@/lib/push-notifications';
 
 // Catch unhandled promise rejections so they don't crash the app (e.g. Supabase .single() throw)
 const g = typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : undefined;
@@ -36,44 +51,23 @@ if (g && typeof (g as any).addEventListener === 'function') {
     if (err && isSentryEnabled() && Sentry?.captureException) {
       Sentry.captureException(err, { extra: { unhandledRejection: true } });
     }
-    if (__DEV__ && err) console.warn('[unhandledRejection]', err);
+    if (err) {
+      logger.warn('Unhandled promise rejection', { err });
+    }
     try {
       event?.preventDefault?.();
-    } catch (_) {}
+    } catch {
+      /* preventDefault may throw in some environments */
+    }
   });
 }
 
-// Keep splash screen visible while loading fonts
-SplashScreen.preventAutoHideAsync();
+// Keep native splash visible until SplashAuthGate calls hideAsync (must run at module load, before first paint).
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export const unstable_settings = {
   anchor: 'index',
 };
-
-/**
- * Parses a playrate:// URL and returns the expo-router path to navigate to, or null if not a supported in-app route.
- * Supports: highlights/<id>, profile/highlights/<id>, courts/<id>, athletes/<userId>, athletes/<userId>/profile, chat/<conversationId>.
- */
-function getRouteFromPlayrateUrl(url: string): string | null {
-  try {
-    const withoutScheme = url.replace(/^playrate:\/\//i, '').replace(/^\/+/, '');
-    const segments = withoutScheme.split('/').filter(Boolean);
-    if (segments.length === 0) return null;
-    const [first, second, third] = segments;
-    // highlights/<id> or profile/highlights/<id>
-    if (first === 'highlights' && second) return `/highlights/${second}`;
-    if (first === 'profile' && second === 'highlights' && third) return `/highlights/${third}`;
-    // courts/<id>
-    if (first === 'courts' && second) return `/courts/${second}`;
-    // athletes/<userId> or athletes/<userId>/profile
-    if (first === 'athletes' && second) return `/athletes/${second}/profile`;
-    // chat/<conversationId>
-    if (first === 'chat' && second) return `/chat/${second}`;
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 /** Connects the PostHog client from context to lib/analytics so track() etc. work from anywhere. */
 function PostHogBridge({ children }: { children: React.ReactNode }) {
@@ -94,6 +88,65 @@ function SentryRouteTracker() {
   return null;
 }
 
+/** Must exceed auth-context hydration cap (~12s) so we don't dismiss splash before auth finishes. */
+const SPLASH_ABSOLUTE_MAX_MS = 16_000;
+
+/**
+ * Hide native splash only when:
+ * - Fonts finished (success or failure — never block forever on font load), and
+ * - Auth initial hydration finished (`loading === false`).
+ * Post-splash data (badges, feeds) loads in screens / providers — not gated here.
+ */
+function SplashAuthGate({ fontsReady }: { fontsReady: boolean }) {
+  const { loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    const ready = fontsReady && !authLoading;
+    if (ready) {
+      hideSplashOnce();
+      return;
+    }
+
+    const absoluteCap = setTimeout(() => {
+      if (__DEV__) logBootFallback('splash_absolute_cap');
+      hideSplashOnce();
+    }, SPLASH_ABSOLUTE_MAX_MS);
+
+    return () => clearTimeout(absoluteCap);
+  }, [fontsReady, authLoading]);
+
+  return null;
+}
+
+/** Offline banner + navigation; AuthProvider wraps this from RootLayout so session restore runs in parallel with PostHog init. */
+function AppShell({ fontsReady }: { fontsReady: boolean }) {
+  return (
+    <View style={{ flex: 1 }}>
+      <OfflineBanner />
+      <View style={{ flex: 1 }}>
+        <SplashAuthGate fontsReady={fontsReady} />
+        <RootLayoutNavInner />
+      </View>
+    </View>
+  );
+}
+
+function PushNotificationBootstrap() {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (authLoading || !user?.id) return;
+    void registerForPushNotifications(user.id);
+  }, [authLoading, user?.id]);
+
+  useEffect(() => subscribeForegroundPushResume(user?.id, authLoading), [user?.id, authLoading]);
+
+  useEffect(() => subscribeToPushNotificationResponses(router), [router]);
+
+  return null;
+}
+
 function RootLayoutNavInner() {
   const colorScheme = useColorScheme();
   const router = useRouter();
@@ -110,7 +163,7 @@ function RootLayoutNavInner() {
     } else {
       resetAnalytics();
     }
-  }, [user?.id]);
+  }, [user?.id, user?.user_metadata?.name, user?.user_metadata?.username]);
 
   // Sentry: set user context when auth changes (only used when DSN is set)
   useEffect(() => {
@@ -150,52 +203,67 @@ function RootLayoutNavInner() {
       try {
         const parsed = Linking.parse(url);
         const { path, queryParams, hostname } = parsed;
-        
-        // Check if this is a password reset link
-        const hasRecoveryType = queryParams?.type === 'recovery';
-        const hasRecoveryTokens = !!(queryParams?.access_token || queryParams?.refresh_token);
+        const merged = mergeQueryAndHash(url);
+
+        const recoveryType =
+          merged.type === 'recovery' || queryParams?.type === 'recovery';
+        const accessToken =
+          merged.access_token || (queryParams?.access_token as string | undefined);
+        const refreshToken =
+          merged.refresh_token || (queryParams?.refresh_token as string | undefined);
+        const hasRecoveryTokens = Boolean(accessToken && refreshToken);
         const isSupabaseUrl = hostname?.includes('supabase.co');
-        
-        const isResetPassword = 
-          path === 'reset-password' || 
+
+        const isResetPassword =
+          path === 'reset-password' ||
           path?.includes('reset-password') ||
-          (hasRecoveryType && hasRecoveryTokens) ||
-          (isSupabaseUrl && hasRecoveryType);
+          (recoveryType && hasRecoveryTokens) ||
+          (isSupabaseUrl && recoveryType);
 
         if (isResetPassword) {
-          const params: Record<string, string> = {};
-          if (queryParams?.access_token) params.access_token = queryParams.access_token as string;
-          if (queryParams?.refresh_token) params.refresh_token = queryParams.refresh_token as string;
-          if (queryParams?.type) params.type = queryParams.type as string;
-          
-          // Small delay to ensure router is ready
+          if (recoveryType && hasRecoveryTokens && accessToken && refreshToken) {
+            void supabase.auth
+              .setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              })
+              .then(({ error }) => {
+                setTimeout(() => {
+                  router.replace(error ? '/sign-in' : '/reset-password');
+                }, 100);
+              });
+            return;
+          }
           setTimeout(() => {
-            router.replace({
-              pathname: '/reset-password',
-              params,
-            });
+            router.replace('/reset-password');
           }, 100);
           return;
         }
 
-        // In-app navigation for playrate:// URLs (e.g. from notifications or shares)
-        if (url && (url.includes('playrate://') || hostname?.includes('playrate'))) {
+        // Supabase OAuth / magic link / email confirmation → /auth/callback (handles tokens in query or #fragment)
+        if (isAuthCallbackUrl(url)) {
+          setTimeout(() => {
+            router.replace('/auth/callback' as any);
+          }, 100);
+          return;
+        }
+
+        // In-app navigation: custom scheme + allowed HTTPS hosts (see lib/deep-links.ts, docs/deep-links.md)
+        if (url && isInboundAppContentLink(url)) {
           const target = path ?? url;
           track('notification_opened', {
             notification_type: 'deep_link',
             deep_link_target: target,
           });
-          const route = getRouteFromPlayrateUrl(url);
-          if (route) {
-            const isInitial = options.isInitial === true;
-            setTimeout(() => {
-              if (isInitial) {
-                router.replace(route as any);
-              } else {
-                router.push(route as any);
-              }
-            }, 100);
-          }
+          const route = resolveAppPathFromInboundLink(url) ?? '/(tabs)';
+          const isInitial = options.isInitial === true;
+          setTimeout(() => {
+            if (isInitial) {
+              router.replace(route as any);
+            } else {
+              router.push(route as any);
+            }
+          }, 100);
         }
       } catch (error) {
         if (__DEV__) console.warn('[root:deepLink]', error);
@@ -222,20 +290,33 @@ function RootLayoutNavInner() {
   return (
     <NavigationThemeProvider value={colorScheme === 'dark' ? customDarkTheme : customLightTheme}>
       {isSentryEnabled() && <SentryRouteTracker />}
+      <PushNotificationBootstrap />
       <BadgeProvider userId={user?.id ?? null}>
       <Stack
         screenOptions={{
           gestureEnabled: true,
           fullScreenGestureEnabled: true,
-          animation: 'default',
+          animation: 'slide_from_right',
         }}
       >
-        {/* Keep root-stack gestures off for the tabs shell; they can steal touches from the bottom tab bar in Expo Go. */}
-        <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="sign-in" options={{ headerShown: false, presentation: 'modal' }} />
-        <Stack.Screen name="sign-up" options={{ headerShown: false, presentation: 'modal' }} />
-        <Stack.Screen name="forgot-password" options={{ title: 'Forgot Password', presentation: 'modal' }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="terms" options={{ headerShown: false, animation: 'fade' }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="sign-in"
+          options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
+        <Stack.Screen
+          name="sign-up"
+          options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
+        <Stack.Screen
+          name="forgot-password"
+          options={{ title: 'Forgot Password', presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
         <Stack.Screen name="reset-password" options={{ title: 'Reset Password' }} />
+        <Stack.Screen name="auth/callback" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="my-sports" options={{ title: 'My Sports', headerShown: false }} />
         <Stack.Screen name="self-ratings" options={{ title: 'Self Ratings', headerShown: false }} />
         <Stack.Screen name="profiles" options={{ title: 'Athletes' }} />
@@ -244,7 +325,10 @@ function RootLayoutNavInner() {
         <Stack.Screen name="chat" options={{ headerShown: false }} />
         <Stack.Screen name="runs" options={{ title: 'Run Recap', headerShown: false }} />
         {__DEV__ && <Stack.Screen name="test-connection" options={{ title: 'Connection Test' }} />}
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+        <Stack.Screen
+          name="modal"
+          options={{ presentation: 'modal', title: 'Modal', animation: 'slide_from_bottom' }}
+        />
       </Stack>
       </BadgeProvider>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
@@ -253,58 +337,43 @@ function RootLayoutNavInner() {
 }
 
 function RootLayout() {
-  // Load custom brand fonts if available
-  // Note: If font files don't exist, the SVG components will use fallback fonts
-  // Download fonts from Google Fonts and place in assets/fonts/ directory
-  const [fontsLoaded] = useFonts({
-    // Uncomment these lines after adding font files to assets/fonts/
-    // 'BarlowCondensed-ExtraBoldItalic': require('@/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'),
-    // 'BarlowCondensed-Bold': require('@/assets/fonts/BarlowCondensed-Bold.ttf'),
-    // 'Rajdhani-Medium': require('@/assets/fonts/Rajdhani-Medium.ttf'),
-    // 'Rajdhani-Regular': require('@/assets/fonts/Rajdhani-Regular.ttf'),
+  // Custom fonts (parallel with AuthProvider effects — see tree below)
+  const [fontsLoaded, fontError] = useFonts({
+    'BarlowCondensed-ExtraBoldItalic': require('@/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'),
+    'BarlowCondensed-Bold': require('@/assets/fonts/BarlowCondensed-Bold.ttf'),
+    'Rajdhani-Medium': require('@/assets/fonts/Rajdhani-Medium.ttf'),
+    'Rajdhani-Regular': require('@/assets/fonts/Rajdhani-Regular.ttf'),
   });
-
-  useEffect(() => {
-    const hideSplash = () => {
-      SplashScreen.hideAsync().catch(() => {
-        // Ignore when native splash isn't registered (e.g. Expo Go, or view controller change)
-      });
-    };
-    if (fontsLoaded) {
-      hideSplash();
-    } else {
-      const timer = setTimeout(hideSplash, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [fontsLoaded]);
-
-  const content = (
-    <AppErrorBoundary fallbackMessage="Something went wrong. Try again or restart the app.">
-      <AuthProvider>
-        <RootLayoutNavInner />
-      </AuthProvider>
-    </AppErrorBoundary>
-  );
+  const fontsReady = fontsLoaded || fontError != null;
+  if (fontError) {
+    logger.warn('Custom fonts failed to load; using system fonts', {
+      err: fontError,
+      message: fontError.message,
+    });
+  }
 
   if (!POSTHOG_API_KEY) {
     warnPostHogKeyMissingOnce();
   }
 
+  const shell = <AppShell fontsReady={fontsReady} />;
+
   return (
-    <ThemeProvider>
-      {POSTHOG_API_KEY ? (
-        <PostHogProvider
-          apiKey={POSTHOG_API_KEY}
-          options={{ host: POSTHOG_HOST }}
-        >
-          <PostHogBridge>
-            {content}
-          </PostHogBridge>
-        </PostHogProvider>
-      ) : (
-        content
-      )}
-    </ThemeProvider>
+    <ErrorBoundary fallbackMessage="Something went wrong. Try again or restart the app.">
+      <ThemeProvider>
+        <SafeAreaProvider>
+          <AuthProvider>
+            {POSTHOG_API_KEY ? (
+              <PostHogProvider apiKey={POSTHOG_API_KEY} options={{ host: POSTHOG_HOST }}>
+                <PostHogBridge>{shell}</PostHogBridge>
+              </PostHogProvider>
+            ) : (
+              shell
+            )}
+          </AuthProvider>
+        </SafeAreaProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

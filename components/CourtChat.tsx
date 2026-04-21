@@ -16,11 +16,17 @@ import {
   type ViewStyle,
   type ListRenderItemInfo,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { supabase } from '@/lib/supabase';
+import { StorageAvatarImage } from '@/components/StorageAvatarImage';
 import { useAuth } from '@/contexts/auth-context';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
+import { logger } from '@/lib/logger';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from '@/lib/sanitize';
+import { normalizeCosignTierName } from '@/lib/tiers';
+import { TierBadge } from '@/components/ui/TierBadge';
 
 type ChatMessage = {
   id: string;
@@ -32,6 +38,7 @@ type ChatMessage = {
     name: string | null;
     username: string | null;
     avatar_url: string | null;
+    rep_level: string | null;
   } | null;
   opacity?: Animated.Value;
 };
@@ -63,10 +70,12 @@ export function CourtChat({
   const { colors } = useThemeColors();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState('');
+  const [myRepLevel, setMyRepLevel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [messagesLoadFailed, setMessagesLoadFailed] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
@@ -75,12 +84,32 @@ export function CourtChat({
   const lastMessageCountRef = useRef(0);
   const COOLDOWN_MS = 2000;
 
+  useEffect(() => {
+    if (!user?.id) {
+      setMyRepLevel(null);
+      return;
+    }
+    let cancelled = false;
+    void supabase
+      .from('profiles')
+      .select('rep_level')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setMyRepLevel(normalizeCosignTierName(data?.rep_level ?? null));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   // Load initial messages and subscribe
   useEffect(() => {
     if (!courtId) return;
 
     // Reset state when court changes
     setMessages([]);
+    setMessagesLoadFailed(false);
     setHasNewMessages(false);
     isAtBottomRef.current = true;
     setLoading(true);
@@ -107,6 +136,7 @@ export function CourtChat({
     if (!courtId) return;
 
     setLoading(true);
+    setMessagesLoadFailed(false);
     try {
       // Fetch last 50 messages, ordered by created_at DESC, then reverse for display
       const { data, error } = await supabase
@@ -117,7 +147,9 @@ export function CourtChat({
         .limit(messageLimit);
 
       if (error) {
-        if (__DEV__) console.error('Error loading messages:', error);
+        logger.error('Court chat: load messages failed', { err: error, courtId });
+        setMessagesLoadFailed(true);
+        setMessages([]);
         setLoading(false);
         return;
       }
@@ -129,15 +161,19 @@ export function CourtChat({
       const userIds = [...new Set(reversedMessages.map(m => m.user_id))];
       const { data: profilesData } = await supabase
         .from('profiles')
-        .select('user_id, name, username, avatar_url')
+        .select('user_id, name, username, avatar_url, rep_level')
         .in('user_id', userIds);
 
       const profilesMap = new Map(
-        (profilesData || []).map(p => [p.user_id, { 
-          name: p.name, 
-          username: p.username,
-          avatar_url: p.avatar_url || null,
-        }])
+        (profilesData || []).map((p) => [
+          p.user_id,
+          {
+            name: p.name,
+            username: p.username,
+            avatar_url: p.avatar_url || null,
+            rep_level: normalizeCosignTierName((p as { rep_level?: string | null }).rep_level),
+          },
+        ])
       );
 
       const messagesWithProfiles: ChatMessage[] = reversedMessages.map(msg => ({
@@ -147,13 +183,16 @@ export function CourtChat({
       }));
 
       setMessages(messagesWithProfiles);
+      setMessagesLoadFailed(false);
       isAtBottomRef.current = true;
       lastMessageCountRef.current = messagesWithProfiles.length;
       setTimeout(() => {
         (embeddedInScrollView ? scrollViewRef.current : flatListRef.current)?.scrollToEnd({ animated: false });
       }, 100);
     } catch (err) {
-      if (__DEV__) console.error('Error loading messages:', err);
+      logger.error('Court chat: load messages threw', { err, courtId });
+      setMessagesLoadFailed(true);
+      setMessages([]);
     } finally {
       setLoading(false);
     }
@@ -178,18 +217,21 @@ export function CourtChat({
           // Fetch profile for the new message
           const { data: profileData } = await supabase
             .from('profiles')
-            .select('user_id, name, username, avatar_url')
+            .select('user_id, name, username, avatar_url, rep_level')
             .eq('user_id', newMessage.user_id)
             .single();
 
           const opacity = new Animated.Value(0);
           const messageWithProfile: ChatMessage = {
             ...newMessage,
-            profile: profileData ? {
-              name: profileData.name,
-              username: profileData.username,
-              avatar_url: profileData.avatar_url || null,
-            } : null,
+            profile: profileData
+              ? {
+                  name: profileData.name,
+                  username: profileData.username,
+                  avatar_url: profileData.avatar_url || null,
+                  rep_level: normalizeCosignTierName((profileData as { rep_level?: string | null }).rep_level),
+                }
+              : null,
             opacity,
           };
 
@@ -228,13 +270,8 @@ export function CourtChat({
     }
 
     // Trim message and block empty
-    const trimmedMessage = messageText.trim();
-    if (!trimmedMessage) {
-      return;
-    }
-
-    // Enforce max 280 chars
-    if (trimmedMessage.length > 280) {
+    const trimmedMessage = sanitizeText(messageText, SANITIZE_LIMITS.courtChatMessage);
+    if (!trimmedMessage || isOffensiveContent(trimmedMessage)) {
       return;
     }
 
@@ -256,6 +293,7 @@ export function CourtChat({
         name: user.user_metadata?.name || null,
         username: user.user_metadata?.username || null,
         avatar_url: user.user_metadata?.avatar_url || null,
+        rep_level: myRepLevel,
       },
       opacity: optimisticOpacity,
     };
@@ -288,7 +326,7 @@ export function CourtChat({
         .single();
 
       if (error) {
-        if (__DEV__) console.error('Error sending message:', error);
+        logger.error('Court chat: send message failed', { err: error, courtId });
         // Rollback: Remove optimistic message
         setMessages(prev => prev.filter(m => m.id !== optimisticId));
         setMessageText(trimmedMessage); // Restore message text
@@ -318,7 +356,7 @@ export function CourtChat({
       });
       setTimeout(() => (embeddedInScrollView ? scrollViewRef.current : flatListRef.current)?.scrollToEnd({ animated: true }), 150);
     } catch (err) {
-      if (__DEV__) console.error('Error sending message:', err);
+      logger.error('Court chat: send message threw', { err, courtId });
       // Rollback: Remove optimistic message
       setMessages(prev => prev.filter(m => m.id !== optimisticId));
       setMessageText(trimmedMessage); // Restore message text
@@ -395,10 +433,42 @@ export function CourtChat({
           {!isOwnMessage && (
             <View style={styles.avatarContainer}>
               {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.avatar} contentFit="cover" />
+                <StorageAvatarImage
+                  uriRaw={avatarUrl}
+                  style={styles.avatar}
+                  contentFit="cover"
+                  accessibilityLabel={`${displayName} avatar`}
+                  fallback={
+                <View
+                  style={[styles.avatarPlaceholder, { backgroundColor: colors.primary }]}
+                  accessible
+                  accessibilityLabel={`${displayName}, initials ${initials}`}
+                  accessibilityRole="image"
+                >
+                  <Text
+                    style={[styles.avatarInitials, { color: colors.textOnPrimary }]}
+                    accessible={false}
+                    importantForAccessibility="no"
+                  >
+                    {initials}
+                  </Text>
+                </View>
+                  }
+                />
               ) : (
-                <View style={[styles.avatarPlaceholder, { backgroundColor: colors.primary }]}>
-                  <Text style={[styles.avatarInitials, { color: colors.textOnPrimary }]}>{initials}</Text>
+                <View
+                  style={[styles.avatarPlaceholder, { backgroundColor: colors.primary }]}
+                  accessible
+                  accessibilityLabel={`${displayName}, initials ${initials}`}
+                  accessibilityRole="image"
+                >
+                  <Text
+                    style={[styles.avatarInitials, { color: colors.textOnPrimary }]}
+                    accessible={false}
+                    importantForAccessibility="no"
+                  >
+                    {initials}
+                  </Text>
                 </View>
               )}
             </View>
@@ -409,9 +479,23 @@ export function CourtChat({
               isOwnMessage ? { backgroundColor: colors.primary } : { backgroundColor: colors.surfaceAlt },
             ]}
           >
-            {!isOwnMessage && (
-              <Text style={[styles.messageAuthor, { color: colors.text }]}>{displayName}</Text>
-            )}
+            <View style={styles.authorRow}>
+              <Text
+                style={[
+                  styles.messageAuthor,
+                  {
+                    color: isOwnMessage ? colors.textOnPrimary : colors.text,
+                    opacity: isOwnMessage ? 0.95 : 1,
+                  },
+                ]}
+              >
+                {isOwnMessage ? 'You' : displayName}
+              </Text>
+              <TierBadge
+                tierName={isOwnMessage ? myRepLevel : message.profile?.rep_level}
+                size="sm"
+              />
+            </View>
             <Text
               style={[
                 styles.messageText,
@@ -451,7 +535,7 @@ export function CourtChat({
         </View>
       );
     },
-    [user?.id, colors]
+    [user?.id, colors, myRepLevel]
   );
 
   if (loading) {
@@ -465,9 +549,13 @@ export function CourtChat({
     );
   }
 
-  const listEmpty = (
+  const listEmpty = messagesLoadFailed ? (
     <View style={styles.emptyContainer}>
-      <Text style={[styles.emptyText, { color: colors.textMuted }]}>{emptyMessage}</Text>
+      <ErrorState onRetry={() => void loadMessages()} />
+    </View>
+  ) : (
+    <View style={styles.emptyContainer}>
+      <EmptyState title={emptyMessage} subtitle="Say hi to others checked in at this court." icon="bubble.left.and.bubble.right.fill" />
     </View>
   );
 
@@ -498,7 +586,7 @@ export function CourtChat({
           }}
           onFocus={() => setTimeout(() => (embeddedInScrollView ? scrollViewRef.current : flatListRef.current)?.scrollToEnd({ animated: true }), 80)}
           multiline
-          maxLength={280}
+          maxLength={SANITIZE_LIMITS.courtChatMessage}
           editable={!sending}
           onSubmitEditing={handleSendMessage}
         />
@@ -711,11 +799,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
     borderRadius: Radius.sm,
   },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
   messageAuthor: {
     ...Typography.mutedSmall,
     fontSize: 12,
-    marginBottom: 2,
+    marginBottom: 0,
     fontWeight: '600',
+    flexShrink: 1,
   },
   messageText: {
     ...Typography.body,

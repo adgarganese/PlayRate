@@ -12,11 +12,47 @@ export type RecommendedCourtItem = {
   spotsLeft: number;
 };
 
-const RECOMMENDED_RUNS_LIMIT = 10;
+type CourtRow = {
+  id: string;
+  name: string | null;
+  lat: number | null;
+  lng: number | null;
+  created_at: string;
+};
+
+const RECOMMENDED_RUNS_LIMIT = 3;
+const COURTS_QUERY_LIMIT = 100;
 const ENGAGEMENT_CAP = 200;
 const GLOBAL_AVG_RATING = 6; // 1–10 scale
 const BAYESIAN_M = 15;
 const DISTANCE_DECAY_MILES = 5;
+
+/** Broader courts query used when primary (with lat/lng) returns 0, errors, or throws. */
+async function fetchCourtsFallback(): Promise<CourtRow[]> {
+  const { data, error } = await supabase
+    .from('courts')
+    .select('id, name, lat, lng, created_at')
+    .order('created_at', { ascending: false })
+    .limit(COURTS_QUERY_LIMIT);
+  return !error && data?.length ? (data as CourtRow[]) : [];
+}
+
+/** Primary + fallback: returns courts for scoring. Empty only when both fail or return 0. */
+async function fetchCourtsForRuns(): Promise<CourtRow[]> {
+  try {
+    const result = await supabase
+      .from('courts')
+      .select('id, name, lat, lng, created_at')
+      .not('lat', 'is', null)
+      .not('lng', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(COURTS_QUERY_LIMIT);
+    if (!result.error && result.data?.length) return result.data as CourtRow[];
+  } catch {
+    // primary threw; use fallback below
+  }
+  return fetchCourtsFallback();
+}
 
 function haversineMiles(
   lat1: number,
@@ -46,19 +82,10 @@ export async function fetchRecommendedRuns(
   userLat: number | null,
   userLng: number | null
 ): Promise<RecommendedCourtItem[]> {
-  const { data: courtsData, error: courtsError } = await supabase
-    .from('courts')
-    .select('id, name, lat, lng, created_at')
-    .not('lat', 'is', null)
-    .not('lng', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(100);
+  const courtsData = await fetchCourtsForRuns();
+  if (!courtsData.length) return [];
 
-  if (courtsError || !courtsData?.length) {
-    return [];
-  }
-
-  const courtIds = courtsData.map((c) => c.id);
+  const courtIds = [...new Set(courtsData.map((c) => c.id))];
 
   // Batched: rating stats per court (view may not exist; fallback to empty)
   let ratingByCourt: Record<string, { average_rating: number; rating_count: number }> = {};
@@ -116,13 +143,17 @@ export async function fetchRecommendedRuns(
   const hasLocation = userLat != null && userLng != null && Number.isFinite(userLat) && Number.isFinite(userLng);
 
   const scored = courtsData.map((court) => {
-    const lat = court.lat as number;
-    const lng = court.lng as number;
-    const distanceMiles = hasLocation ? haversineMiles(userLat!, userLng!, lat, lng) : 0;
+    const lat = court.lat != null && Number.isFinite(Number(court.lat)) ? Number(court.lat) : null;
+    const lng = court.lng != null && Number.isFinite(Number(court.lng)) ? Number(court.lng) : null;
+    const distanceMiles =
+      hasLocation && lat != null && lng != null
+        ? haversineMiles(userLat!, userLng!, lat, lng)
+        : 0;
 
-    const distanceScore = hasLocation
-      ? 40 * Math.exp(-distanceMiles / DISTANCE_DECAY_MILES)
-      : 0;
+    const distanceScore =
+      hasLocation && lat != null && lng != null
+        ? 40 * Math.exp(-distanceMiles / DISTANCE_DECAY_MILES)
+        : 0;
 
     const ratingsCount = ratingByCourt[court.id]?.rating_count ?? 0;
     const avgRating = ratingByCourt[court.id]?.average_rating ?? 0;
@@ -154,11 +185,18 @@ export async function fetchRecommendedRuns(
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
-  const top = scored.slice(0, RECOMMENDED_RUNS_LIMIT);
+  // Dedupe by court.id (keep first = highest score) before capping.
+  const seenCourtIds = new Set<string>();
+  const deduped = scored.filter(({ court }) => {
+    if (seenCourtIds.has(court.id)) return false;
+    seenCourtIds.add(court.id);
+    return true;
+  });
+  const top = deduped.slice(0, RECOMMENDED_RUNS_LIMIT);
 
   return top.map(({ court, distanceMiles }) => ({
     id: court.id,
-    courtName: court.name,
+    courtName: court.name ?? 'Court',
     distance: hasLocation ? `${distanceMiles.toFixed(1)} mi` : '—',
     startTime: '—',
     spotsLeft: 0,

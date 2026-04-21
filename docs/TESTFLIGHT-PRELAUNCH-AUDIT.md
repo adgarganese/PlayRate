@@ -41,7 +41,7 @@ No UI/UX or flow changes; only safer query semantics.
 
 | What | Why it matters | Action |
 |------|----------------|--------|
-| **EXPO_PUBLIC_SUPABASE_URL** and **EXPO_PUBLIC_SUPABASE_ANON_KEY** | If missing in EAS secrets for the build profile used for TestFlight, `isSupabaseConfigured` is false and the app shows the config-error screen after load. | Confirm both are set in EAS for the profile you use (e.g. production or preview). |
+| **EXPO_PUBLIC_SUPABASE_URL** and **EXPO_PUBLIC_SUPABASE_ANON_KEY** | If missing in EAS for the build environment used for TestFlight, `isSupabaseConfigured` is false and the app shows the config-error screen after load. | Confirm both are set (URL: **sensitive**; anon key: **secret**). |
 | **Storage buckets** | Avatar upload uses `avatars`; highlights use `highlights`; court photos use `court-photos`. Missing bucket or wrong RLS causes upload to fail. | Confirm in Supabase Dashboard that `avatars`, `highlights`, and `court-photos` exist and RLS allows the intended uploads. |
 | **Sentry (optional)** | Crashes and unhandled rejections are reported only if DSN is set. | For TestFlight, set `EXPO_PUBLIC_SENTRY_DSN` (and optionally auth token) in EAS so you get reports. |
 
@@ -70,7 +70,7 @@ No UI/UX or flow changes; only safer query semantics.
 - **Sign-in / sign-up / session:** Config check and clear error when Supabase env is missing; auth uses `maybeSingle()` in critical paths; sign-in has try/catch and user-facing errors; session restore and `ensureProfileExists` are guarded.
 - **Tab navigation:** Tabs layout wrapped in `AppErrorBoundary` with Try again and Sign out; no Rhode Island or narrow-region restrictions; Home waits for initial data with a clear loading state.
 - **Profile / avatar:** `ProfilePicture` uploads to `avatars` with a clear path and handles errors; bucket doc exists. No `.single()` on profile read in the snapshot card (already fixed).
-- **Highlights:** Create uses storage + insert; playback uses `expo-av` in-app; detail screens use `maybeSingle()` for highlight and profile.
+- **Highlights:** Create uses storage + insert; playback uses `expo-video` in-app; detail screens use `maybeSingle()` for highlight and profile.
 - **Courts / runs / athletes:** Court detail handles missing court via catch and ErrorScreen; runs and athletes flows use safe queries and error state.
 - **Loading and errors:** Loading screens and ErrorScreens are used where needed; root and tabs have error boundary; unhandled rejection handler is in place.
 - **iOS:** Scheme and bundle id set; camera/photo/location usage strings present; no obvious iOS-only bugs in the paths audited.
@@ -81,7 +81,7 @@ No UI/UX or flow changes; only safer query semantics.
 
 **Verdict:** **Yes, you can relaunch on TestFlight with the current code**, provided:
 
-1. **EAS secrets** for the build profile used for TestFlight include at least **EXPO_PUBLIC_SUPABASE_URL** and **EXPO_PUBLIC_SUPABASE_ANON_KEY** (and you’ve confirmed storage buckets + RLS in Supabase).
+1. **EAS environment variables** for the build environment used for TestFlight include at least **EXPO_PUBLIC_SUPABASE_URL** and **EXPO_PUBLIC_SUPABASE_ANON_KEY** (and you’ve confirmed storage buckets + RLS in Supabase).
 2. You’re comfortable with the small remaining risks (e.g. Home loading forever if one of the three requests never resolves; very rare).
 
 Fixing the **recommended** items (`.maybeSingle()` in the three places, optional Home timeout, and double-checking env/buckets) will make the build more robust and easier to support, but they are not hard blockers for a TestFlight build.

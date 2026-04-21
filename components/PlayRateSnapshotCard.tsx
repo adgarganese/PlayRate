@@ -1,10 +1,13 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable, Modal, TouchableOpacity, ScrollView } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import { useFollow } from '@/hooks/useFollow';
 import { Card } from './Card';
+import { GradientCard } from './ui/GradientCard';
+import { AnimatedPressable } from './ui/AnimatedPressable';
 import { StatBar } from './StatBar';
 import { ProfilePicture } from './ProfilePicture';
 import { AppText } from './ui/AppText';
@@ -12,6 +15,10 @@ import { IconSymbol } from './ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { getSportDefinition, isSportEnabled } from '@/constants/sport-definitions';
+import { logger } from '@/lib/logger';
+import { normalizeCosignTierName } from '@/lib/tiers';
+import { TierBadge } from '@/components/ui/TierBadge';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type Sport = {
   id: string;
@@ -27,7 +34,9 @@ type SnapshotData = {
   defense: number; // 0-100
   hustle: number; // 0-100
   ratingsCount: number;
+  /** Cosigns received in the last 90 days (matches `rep_rollups` when present) */
   cosignCount: number;
+  rep_level: string | null;
   lastPlayed: string | null;
   activeSportId: string | null;
   activeSportName: string | null;
@@ -53,6 +62,7 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
+  const modalScrollBottomPad = useScrollContentBottomPadding('modal');
   const effectiveUserId = targetUserId ?? user?.id ?? null;
   const { followersCount } = useFollow(effectiveUserId);
   const [loading, setLoading] = useState(true);
@@ -74,6 +84,14 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveUserId]);
 
+  // Refetch snapshot when screen gains focus (e.g. return from Profile after avatar upload) so avatar appears on Home.
+  useFocusEffect(
+    useCallback(() => {
+      if (effectiveUserId && !targetUserId) loadSnapshot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [effectiveUserId, targetUserId])
+  );
+
   const loadSnapshot = async (sportIdOverride?: string) => {
     if (!effectiveUserId) return;
 
@@ -85,7 +103,7 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('user_id, name, username, bio, avatar_url, active_sport_id')
+        .select('user_id, name, username, bio, avatar_url, active_sport_id, rep_level')
         .eq('user_id', effectiveUserId)
         .maybeSingle();
 
@@ -94,12 +112,15 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
         if (error.message?.includes('active_sport_id') || error.message?.includes('column') || error.code === '42703') {
           const { data: dataWithoutActiveSport, error: errorWithoutActiveSport } = await supabase
             .from('profiles')
-            .select('user_id, name, username, bio, avatar_url')
+            .select('user_id, name, username, bio, avatar_url, rep_level')
             .eq('user_id', effectiveUserId)
             .maybeSingle();
 
-          if (errorWithoutActiveSport && __DEV__) {
-            console.error('Profile load error (without active_sport_id):', errorWithoutActiveSport);
+          if (errorWithoutActiveSport) {
+            logger.error('Snapshot: profile load failed (without active_sport_id)', {
+              err: errorWithoutActiveSport,
+              userId: effectiveUserId,
+            });
             // Even if there's an error, try to use the data
             profile = dataWithoutActiveSport;
             if (profile) {
@@ -109,7 +130,7 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
             profile = { ...dataWithoutActiveSport, active_sport_id: null };
           }
         } else {
-          if (__DEV__) console.error('Profile load error:', error);
+          logger.error('Snapshot: profile load failed', { err: error, userId: effectiveUserId });
           profileError = error;
         }
       } else {
@@ -117,7 +138,10 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
       }
 
       if (profileError || !profile) {
-        if (__DEV__) console.error('Unable to load profile');
+        logger.error('Snapshot: unable to load profile', {
+          err: profileError,
+          userId: effectiveUserId,
+        });
         setLoading(false);
         // Retry once after delay (new user: profile may be created by ensureProfileExists shortly)
         if (retryCountRef.current < 1) {
@@ -171,9 +195,13 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
               .from('profiles')
               .update({ active_sport_id: activeSportId })
               .eq('user_id', user!.id);
-          } catch (updateError: any) {
-            if (updateError?.code !== '42703' && !updateError?.message?.includes('active_sport_id') && __DEV__) {
-              console.error('Error updating active_sport_id:', updateError);
+          } catch (updateError: unknown) {
+            const u = updateError as { code?: string; message?: string };
+            if (u?.code !== '42703' && !u?.message?.includes('active_sport_id')) {
+              logger.error('Snapshot: update active_sport_id failed', {
+                err: updateError,
+                userId: effectiveUserId,
+              });
             }
           }
         }
@@ -329,6 +357,19 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
         lastPlayed = lastRating?.last_updated || null;
       }
 
+      let repLevelForUi: string | null = null;
+      const { data: rollupRow } = await supabase
+        .from('rep_rollups')
+        .select('total_cosigns, rep_level')
+        .eq('user_id', effectiveUserId)
+        .maybeSingle();
+      if (rollupRow) {
+        cosignCount = rollupRow.total_cosigns ?? 0;
+        repLevelForUi = normalizeCosignTierName(rollupRow.rep_level as string | null);
+      } else {
+        repLevelForUi = normalizeCosignTierName((profile as { rep_level?: string | null }).rep_level);
+      }
+
       setData({
         name: profile?.name || null,
         username: profile?.username || null,
@@ -339,12 +380,13 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
         hustle,
         ratingsCount,
         cosignCount,
+        rep_level: repLevelForUi,
         lastPlayed,
         activeSportId,
         activeSportName,
       });
     } catch (error) {
-      if (__DEV__) console.error('Error loading snapshot:', error);
+      logger.error('Snapshot: loadSnapshot failed', { err: error, userId: effectiveUserId });
     } finally {
       setLoading(false);
     }
@@ -364,16 +406,20 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
           .from('profiles')
           .update({ active_sport_id: sportId })
           .eq('user_id', user.id);
-        if (error && error.code !== '42703' && !error.message?.includes('active_sport_id') && __DEV__) {
-          console.error('Error updating active sport:', error);
+        if (error && error.code !== '42703' && !error.message?.includes('active_sport_id')) {
+          logger.error('Snapshot: update active sport failed', {
+            err: error,
+            userId: user.id,
+          });
         }
       }
       await loadSnapshot(sportId);
-    } catch (error: any) {
-      if (error?.code === '42703' || error?.message?.includes('active_sport_id')) {
+    } catch (error: unknown) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === '42703' || e?.message?.includes('active_sport_id')) {
         await loadSnapshot(sportId);
-      } else if (__DEV__) {
-        console.error('Error switching sport:', error);
+      } else {
+        logger.error('Snapshot: switch sport failed', { err: error, userId: effectiveUserId });
       }
     } finally {
       setSwitchingSport(false);
@@ -408,10 +454,15 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
       />
       <View style={styles.nameContainer}>
         <View style={styles.nameRow}>
-          <Text style={[styles.name, { color: colors.text }]}>{data.name || 'No name'}</Text>
-          {data.username && (
-            <Text style={[styles.username, { color: colors.textMuted }]}>@{data.username}</Text>
-          )}
+          <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
+            {data.name || 'No name'}
+          </Text>
+          <TierBadge tierName={data.rep_level} size="sm" />
+          {data.username ? (
+            <Text style={[styles.username, { color: colors.textMuted }]} numberOfLines={1}>
+              @{data.username}
+            </Text>
+          ) : null}
         </View>
         <TouchableOpacity
           onPress={() => effectiveUserId && router.push(`/athletes/${effectiveUserId}/followers` as any)}
@@ -463,13 +514,14 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
   const footerBlock = data ? (
     <View style={[styles.footer, { borderTopColor: colors.border }]}>
       <Text style={[styles.footerText, { color: colors.textMuted }]}>
-        Ratings: {data.ratingsCount} • Cosigns: {data.cosignCount} • Last played: {formatLastPlayed(data.lastPlayed)}
+        Ratings: {data.ratingsCount} • Cosigns (90d): {data.cosignCount} • Last played:{' '}
+        {formatLastPlayed(data.lastPlayed)}
       </Text>
     </View>
   ) : null;
 
   const cardContent = (
-    <Card style={{ backgroundColor: colors.surfaceElevated }}>
+    <GradientCard variant="featured">
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="small" color={colors.primary} />
@@ -479,14 +531,13 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
         <>
           <View style={styles.header}>
             {onPress ? (
-              <Pressable
+              <AnimatedPressable
                 onPress={onPress}
-                style={({ pressed }) => [pressed && styles.pressed]}
                 accessibilityRole="button"
                 accessibilityLabel="View your profile"
               >
                 {profileRowBlock}
-              </Pressable>
+              </AnimatedPressable>
             ) : (
               profileRowBlock
             )}
@@ -496,15 +547,14 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
           </View>
 
           {onPress ? (
-            <Pressable
+            <AnimatedPressable
               onPress={onPress}
-              style={({ pressed }) => [pressed && styles.pressed]}
               accessibilityRole="button"
               accessibilityLabel="View your profile"
             >
               {statsBlock}
               {footerBlock}
-            </Pressable>
+            </AnimatedPressable>
           ) : (
             <>
               {statsBlock}
@@ -515,7 +565,7 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
       ) : (
         <Text style={[styles.errorText, { color: colors.textMuted }]}>Unable to load snapshot</Text>
       )}
-    </Card>
+    </GradientCard>
   );
 
   return (
@@ -535,7 +585,10 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
         >
           <Card style={styles.modalContent}>
             <AppText variant="h3" color="text" style={styles.modalTitle}>Select Sport</AppText>
-            <ScrollView style={styles.modalList}>
+            <ScrollView
+              style={styles.modalList}
+              contentContainerStyle={{ paddingBottom: modalScrollBottomPad }}
+            >
               {userSports.map((sport) => (
                 <TouchableOpacity
                   key={sport.id}
@@ -575,9 +628,6 @@ export function PlayRateSnapshotCard({ targetUserId, onPress }: PlayRateSnapshot
 }
 
 const styles = StyleSheet.create({
-  pressed: {
-    opacity: 0.7,
-  },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -600,12 +650,14 @@ const styles = StyleSheet.create({
   },
   nameRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: Spacing.sm,
     marginBottom: Spacing.xs,
   },
   name: {
     ...Typography.h3,
+    flexShrink: 1,
   },
   username: {
     ...Typography.body,

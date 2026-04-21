@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -6,6 +6,10 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { getHighlightPreview, type HighlightPreview } from '@/lib/highlights';
+import { useResolvedMediaUri } from '@/hooks/useResolvedMediaUri';
+import { pickHighlightStillImageRaw } from '@/lib/highlight-still';
+
+const VIDEO_PREVIEW_FALLBACK_BG = '#0B0F1A';
 
 type Props = {
   highlightId: string;
@@ -16,6 +20,45 @@ type Props = {
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function PreviewThumb({ preview }: { preview: HighlightPreview }) {
+  const { colors } = useThemeColors();
+  const raw = useMemo(
+    () => pickHighlightStillImageRaw(preview.thumbnail_url, preview.media_url, preview.media_type),
+    [preview.thumbnail_url, preview.media_url, preview.media_type]
+  );
+  const uri = useResolvedMediaUri(raw);
+  const isVideo = preview.media_type === 'video';
+
+  if (uri) {
+    return (
+      <Image source={{ uri }} style={styles.thumb} contentFit="cover" cachePolicy="memory-disk" />
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.thumb,
+        styles.thumbPlaceholder,
+        {
+          backgroundColor: isVideo ? VIDEO_PREVIEW_FALLBACK_BG : colors.surface,
+        },
+      ]}
+    >
+      <IconSymbol
+        name={isVideo ? 'play.rectangle.fill' : 'photo'}
+        size={28}
+        color={isVideo ? 'rgba(255,255,255,0.88)' : colors.textMuted}
+      />
+      {isVideo && preview.caption?.trim() ? (
+        <Text numberOfLines={2} style={styles.thumbCaption}>
+          {preview.caption.trim()}
+        </Text>
+      ) : null}
+    </View>
+  );
 }
 
 export function HighlightPreviewCard({ highlightId, isMine, createdAt }: Props) {
@@ -54,16 +97,7 @@ export function HighlightPreviewCard({ highlightId, isMine, createdAt }: Props) 
         ]}
       >
         <View style={styles.thumbRow}>
-          {(preview.thumbnail_url || preview.media_url) ? (
-            <Image
-              source={{ uri: preview.thumbnail_url || preview.media_url }}
-              style={styles.thumb}
-            />
-          ) : (
-            <View style={[styles.thumb, styles.thumbPlaceholder, { backgroundColor: colors.surface }]}>
-              <IconSymbol name="play.rectangle.fill" size={28} color={colors.textMuted} />
-            </View>
-          )}
+          <PreviewThumb preview={preview} />
           {preview.media_type === 'video' && (
             <View style={styles.videoBadge}>
               <IconSymbol name="play.rectangle.fill" size={14} color="#fff" />
@@ -113,7 +147,14 @@ const styles = StyleSheet.create({
   },
   thumbRow: { position: 'relative' },
   thumb: { width: '100%', aspectRatio: 1, maxHeight: 180 },
-  thumbPlaceholder: { justifyContent: 'center', alignItems: 'center' },
+  thumbPlaceholder: { justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.sm },
+  thumbCaption: {
+    marginTop: Spacing.xs,
+    fontSize: 11,
+    lineHeight: 14,
+    color: 'rgba(255,255,255,0.72)',
+    textAlign: 'center',
+  },
   videoBadge: {
     position: 'absolute',
     bottom: Spacing.xs,

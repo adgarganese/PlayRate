@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Linking, Alert } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
@@ -11,6 +11,7 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
 import { getReportProblemMailtoUrl, getFeedbackFormUrl, getFeedbackContext, getPrivacyPolicyUrl, getTermsUrl } from '@/lib/feedback';
 import { track } from '@/lib/analytics';
+import { Sentry } from '@/lib/sentry';
 
 type ProfileAccount = {
   username: string | null;
@@ -62,16 +63,7 @@ export default function AccountScreen() {
     });
   };
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      router.replace('/sign-in');
-      return;
-    }
-    loadAccount();
-  }, [user, authLoading]);
-
-  const loadAccount = async () => {
+  const loadAccount = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
@@ -88,7 +80,16 @@ export default function AccountScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      router.replace('/sign-in');
+      return;
+    }
+    loadAccount();
+  }, [user, authLoading, router, loadAccount]);
 
   if (authLoading || loading) return <LoadingScreen message="Loading..." />;
   if (!user) return null;
@@ -132,7 +133,7 @@ export default function AccountScreen() {
         >
           <Text style={[styles.reportLabel, { color: colors.primary }]}>Change password</Text>
           <Text style={[styles.hint, { color: colors.textMuted }]}>
-            We'll send a link to your email to set a new password
+            We&apos;ll send a link to your email to set a new password
           </Text>
         </Pressable>
 
@@ -155,6 +156,23 @@ export default function AccountScreen() {
             Opens beta feedback questionnaire
           </Text>
         </Pressable>
+
+        {__DEV__ ? (
+          <>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Developer</Text>
+            <Pressable
+              style={({ pressed }) => [styles.section, styles.reportRow, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => {
+                Sentry.captureException(new Error('Test Sentry event from PlayRate'));
+              }}
+            >
+              <Text style={[styles.reportLabel, { color: colors.primary }]}>Test Sentry</Text>
+              <Text style={[styles.hint, { color: colors.textMuted }]}>
+                Sends a test error to Sentry when DSN is configured
+              </Text>
+            </Pressable>
+          </>
+        ) : null}
 
         <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Legal & About</Text>
         {privacyUrl ? (

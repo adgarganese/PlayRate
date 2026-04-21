@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
-import { fetchRunById, formatRunTimeLabel, isUserParticipantInRun, joinRun } from '@/lib/runs';
+import { fetchRunById, formatRunTimeLabel, isUserParticipantInRun, joinRun, leaveRun } from '@/lib/runs';
 import type { RunRow } from '@/lib/runs';
 import { getNotificationPrefs, updateRunReminderPrefs } from '@/lib/notification-prefs';
 import { Screen } from '@/components/ui/Screen';
@@ -10,10 +10,12 @@ import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
 import { trackOnce } from '@/lib/analytics';
-import { logDevError } from '@/lib/dev-log';
+import { logger } from '@/lib/logger';
 
 const SKILL_BAND_LABELS: Record<string, string> = {
   casual: 'Casual',
@@ -29,57 +31,66 @@ export default function RunDetailScreen() {
   const [run, setRun] = useState<RunRow | null>(null);
   const [participantCount, setParticipantCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [fetchFailed, setFetchFailed] = useState(false);
+  const [runMissing, setRunMissing] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
   const [reminder2h, setReminder2h] = useState(false);
   const [reminder30m, setReminder30m] = useState(false);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
   const runOpenedFired = useRef(false);
 
-  useEffect(() => {
+  const loadRun = useCallback(async () => {
     if (!runId) {
       setLoading(false);
-      setError(true);
+      setRun(null);
+      setFetchFailed(false);
+      setRunMissing(true);
+      setParticipantCount(0);
+      setIsParticipant(false);
+      setReminder2h(false);
+      setReminder30m(false);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { run: r, participantCount: count } = await fetchRunById(runId);
-        if (cancelled) return;
+    setLoading(true);
+    setFetchFailed(false);
+    setRunMissing(false);
+    try {
+      const { run: r, participantCount: count } = await fetchRunById(runId);
 
-        let participant = false;
-        let prefs2h = false;
-        let prefs30m = false;
-        if (user?.id && r) {
-          participant = await isUserParticipantInRun(runId, user.id);
-          if (cancelled) return;
-          if (participant) {
-            const prefs = await getNotificationPrefs(user.id);
-            if (cancelled) return;
-            prefs2h = prefs.run_reminder_2h;
-            prefs30m = prefs.run_reminder_30m;
-          }
+      let participant = false;
+      let prefs2h = false;
+      let prefs30m = false;
+      if (user?.id && r) {
+        participant = await isUserParticipantInRun(runId, user.id);
+        if (participant) {
+          const prefs = await getNotificationPrefs(user.id);
+          prefs2h = prefs.run_reminder_2h;
+          prefs30m = prefs.run_reminder_30m;
         }
-        if (cancelled) return;
-        setRun(r ?? null);
-        setParticipantCount(count ?? 0);
-        setError(!r);
-        setIsParticipant(participant);
-        setReminder2h(prefs2h);
-        setReminder30m(prefs30m);
-      } catch (error) {
-        logDevError('run-detail:load', error);
-        if (!cancelled) setError(true);
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setRun(r ?? null);
+      setParticipantCount(count ?? 0);
+      setRunMissing(!r);
+      setFetchFailed(false);
+      setIsParticipant(participant);
+      setReminder2h(prefs2h);
+      setReminder30m(prefs30m);
+    } catch (err) {
+      logger.error('run-detail: load failed', { err, runId });
+      setFetchFailed(true);
+      setRunMissing(false);
+      setRun(null);
+    } finally {
+      setLoading(false);
+    }
   }, [runId, user?.id]);
+
+  useEffect(() => {
+    void loadRun();
+  }, [loadRun]);
 
   const handleReminder2h = useCallback(
     async (value: boolean) => {
@@ -118,28 +129,68 @@ export default function RunDetailScreen() {
     try {
       const { error } = await joinRun(runId, user.id);
       if (error) {
-        setJoinError(error.message ?? 'Could not join run');
+        logger.error('RunDetail: joinRun returned error', { err: error, runId });
+        setJoinError('Could not join this run. Please try again.');
         return;
       }
       setIsParticipant(true);
       setParticipantCount((c) => c + 1);
-    } catch {
+    } catch (err) {
+      logger.error('RunDetail: joinRun threw', { err, runId });
       setJoinError('Something went wrong');
     } finally {
       setJoining(false);
     }
   }, [runId, user?.id, run]);
 
+  const handleLeaveRun = useCallback(async () => {
+    if (!runId || !user?.id) return;
+    setLeaveError(null);
+    setLeaving(true);
+    try {
+      const { error } = await leaveRun(runId, user.id);
+      if (error) {
+        logger.error('RunDetail: leaveRun returned error', { err: error, runId });
+        setLeaveError('Could not leave this run. Please try again.');
+        return;
+      }
+      setIsParticipant(false);
+      setParticipantCount((c) => Math.max(0, c - 1));
+    } catch (err) {
+      logger.error('RunDetail: leaveRun threw', { err, runId });
+      setLeaveError('Something went wrong');
+    } finally {
+      setLeaving(false);
+    }
+  }, [runId, user?.id]);
+
   if (loading) {
     return <LoadingScreen message="Loading run..." />;
   }
 
-  if (error || !run) {
+  if (fetchFailed) {
     return (
       <Screen>
         <Header title="Run" showBack onBackPress={() => router.back()} />
         <View style={[styles.centered, { backgroundColor: colors.bg }]}>
-          <Text style={[Typography.body, { color: colors.textMuted }]}>Run not found.</Text>
+          <ErrorState onRetry={() => void loadRun()} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (runMissing || !run) {
+    return (
+      <Screen>
+        <Header title="Run" showBack onBackPress={() => router.back()} />
+        <View style={[styles.centered, { backgroundColor: colors.bg }]}>
+          <EmptyState
+            title="No runs scheduled at this court. Create one!"
+            subtitle="If this link is old, the run may have been removed."
+            actionLabel="Back"
+            onAction={() => router.back()}
+            icon="figure.run"
+          />
         </View>
       </Screen>
     );
@@ -227,6 +278,19 @@ export default function RunDetailScreen() {
                 onValueChange={handleReminder30m}
                 trackColor={{ false: colors.border, true: colors.primary }}
                 thumbColor={colors.surface}
+              />
+            </View>
+            {leaveError ? (
+              <Text style={[Typography.muted, { color: colors.textMuted, marginTop: Spacing.md }]}>
+                {leaveError}
+              </Text>
+            ) : null}
+            <View style={{ marginTop: Spacing.lg }}>
+              <Button
+                title={leaving ? 'Leaving…' : 'Leave run'}
+                onPress={handleLeaveRun}
+                disabled={leaving}
+                variant="secondary"
               />
             </View>
           </Card>

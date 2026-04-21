@@ -1,3 +1,6 @@
+// TODO: [CLEANUP] Consolidate logging: lib/logger.ts vs lib/logging.ts vs lib/dev-log.ts.
+// These three modules overlap. Decide on a single pattern and merge.
+
 /**
  * DEV-only logging. In production/beta builds these no-op so logs do not run.
  */

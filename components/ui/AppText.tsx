@@ -1,9 +1,11 @@
-import { Text, StyleSheet, TextProps } from 'react-native';
+import { Text, TextProps } from 'react-native';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Typography } from '@/constants/theme';
 
+type AppTextVariant = keyof typeof Typography;
+
 type AppTextProps = TextProps & {
-  variant?: 'h1' | 'h2' | 'h3' | 'body' | 'bodyBold' | 'muted' | 'mutedSmall';
+  variant?: AppTextVariant;
   color?: 'text' | 'textMuted' | 'primary' | 'textOnPrimary';
 };
 
@@ -15,7 +17,7 @@ export function AppText({
 }: AppTextProps) {
   const { colors, isDark } = useThemeColors();
 
-  const variantStyle = variantStyles[variant];
+  const variantStyle = Typography[variant];
   const isSmallPrimary = color === 'primary' && (variant === 'muted' || variant === 'mutedSmall');
   const colorValue = color === 'text' ? colors.text :
                      color === 'textMuted' ? colors.textMuted :
@@ -35,13 +37,3 @@ export function AppText({
     />
   );
 }
-
-const variantStyles = StyleSheet.create({
-  h1: Typography.h1,
-  h2: Typography.h2,
-  h3: Typography.h3,
-  body: Typography.body,
-  bodyBold: Typography.bodyBold,
-  muted: Typography.muted,
-  mutedSmall: Typography.mutedSmall,
-});

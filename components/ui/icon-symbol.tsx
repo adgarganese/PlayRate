@@ -6,7 +6,7 @@ import { ComponentProps } from 'react';
 import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
 
 type IconMapping = Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>;
-type IconSymbolName = keyof typeof MAPPING;
+export type IconSymbolName = keyof typeof MAPPING;
 
 /**
  * Add your SF Symbols to Material Icons mappings here.
@@ -26,11 +26,16 @@ const MAPPING = {
   'person.circle.fill': 'account-circle',
   'sportscourt.fill': 'sports-basketball',
   'play.rectangle.fill': 'play-circle-filled',
+  /** Small play badge (e.g. highlight tiles); Material equivalent */
+  'play.fill': 'play-arrow',
+  /** FAB / toolbar plus */
+  plus: 'add',
   'plus.circle.fill': 'add-circle',
   'arrow.right.square.fill': 'logout',
   'figure.run': 'directions-run',
   'star.fill': 'star',
   'star': 'star-border',
+  'heart.fill': 'favorite',
   'info.circle.fill': 'info',
   'bell.fill': 'notifications',
   'envelope.fill': 'mail',
@@ -38,8 +43,10 @@ const MAPPING = {
   'camera.fill': 'camera-alt',
   'magnifyingglass': 'search',
   'xmark.circle.fill': 'cancel',
+  'trash.fill': 'delete',
   'map.fill': 'directions',
   'square.and.arrow.up': 'share',
+  'arrow.2.squarepath': 'repeat',
   'checkmark.circle.fill': 'check-circle',
   'location.fill': 'place',
   'chevron.up': 'expand-less',
@@ -47,9 +54,18 @@ const MAPPING = {
   'chart.bar': 'bar-chart',
   'medal.fill': 'emoji-events',
   'message.fill': 'chat-bubble',
+  'bubble.left.fill': 'chat-bubble',
+  'bubble.left.and.bubble.right.fill': 'forum',
+  'mappin.and.ellipse': 'place',
+  /** Map view (Courts finder); Material `map` ≈ outline map icon */
+  map: 'map',
+  'exclamationmark.triangle.fill': 'warning',
   'eye.fill': 'visibility',
   'eye.slash.fill': 'visibility-off',
+  'speaker.slash.fill': 'volume-off',
+  'speaker.wave.2.fill': 'volume-up',
   'gearshape.fill': 'settings',
+  photo: 'image',
 } as IconMapping;
 
 /**

@@ -14,9 +14,11 @@ import {
   Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Video, ResizeMode } from 'expo-av';
+import { useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HighlightDetailVideo } from '@/components/HighlightDetailVideo';
+import { useResolvedMediaUri } from '@/hooks/useResolvedMediaUri';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import { resolveMediaUrlForPlayback } from '@/lib/storage-media-url';
@@ -32,12 +34,18 @@ import {
   addHighlightComment,
   recordHighlightView,
   formatViewCount,
+  toggleHighlightLike,
   type HighlightComment,
 } from '@/lib/highlights';
 import { repostHighlight, undoRepost, hasUserReposted } from '@/lib/reposts';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { HighlightDetailSkeleton } from '@/components/skeletons/HighlightDetailSkeleton';
 import { hapticLight } from '@/lib/haptics';
+import { logger } from '@/lib/logger';
+import { playrateHighlightUrl } from '@/lib/deep-links';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { TierBadge } from '@/components/ui/TierBadge';
 
 /** Card horizontal inset from screen — full-bleed media width matches Card outer edge. */
 const DETAIL_CARD_SCREEN_MARGIN = Spacing.md;
@@ -68,15 +76,25 @@ type Highlight = {
   profile_name: string | null;
   profile_username: string | null;
   profile_avatar_url: string | null;
+  profile_rep_level: string | null;
 };
 
 /** Video URL must not be passed as Image poster (avoids invalid poster + layout jump). */
-function HighlightVideo({ uri, posterImageUri }: { uri: string; posterImageUri: string | null }) {
+function HighlightVideo({
+  uri,
+  posterImageUri,
+  isActive,
+}: {
+  uri: string;
+  posterImageUri: string | null;
+  isActive: boolean;
+}) {
+  const resolvedPoster = useResolvedMediaUri(posterImageUri);
   if (!uri) {
-    if (posterImageUri) {
+    if (resolvedPoster) {
       return (
         <Image
-          source={{ uri: posterImageUri }}
+          source={{ uri: resolvedPoster }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           cachePolicy="memory-disk"
@@ -86,16 +104,11 @@ function HighlightVideo({ uri, posterImageUri }: { uri: string; posterImageUri: 
     return <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]} />;
   }
   return (
-    <Video
-      source={{ uri }}
-      style={StyleSheet.absoluteFill}
-      useNativeControls
-      resizeMode={ResizeMode.COVER}
-      posterSource={posterImageUri ? { uri: posterImageUri } : undefined}
-      usePoster={!!posterImageUri}
-      isLooping
-      shouldPlay
-      isMuted
+    <HighlightDetailVideo
+      uri={uri}
+      posterUri={posterImageUri}
+      contentFit="cover"
+      isActive={isActive}
     />
   );
 }
@@ -135,10 +148,13 @@ export default function HighlightDetailInStackScreen() {
   const [togglingRepost, setTogglingRepost] = useState(false);
   const [comments, setComments] = useState<HighlightComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsLoadError, setCommentsLoadError] = useState(false);
+  const [highlightLoadError, setHighlightLoadError] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
-  const insets = useSafeAreaInsets();
+  const scrollBottomPadding = useScrollContentBottomPadding();
+  const isFocused = useIsFocused();
   const [detailMediaLayout, setDetailMediaLayout] = useState(computeDetailMediaLayout);
 
   useEffect(() => {
@@ -148,9 +164,10 @@ export default function HighlightDetailInStackScreen() {
     return () => sub.remove();
   }, []);
 
-  const loadHighlight = async () => {
+  const loadHighlight = useCallback(async () => {
     if (!highlightId) return;
     setLoading(true);
+    setHighlightLoadError(false);
     try {
       const { data: h, error } = await supabase
         .from('highlights')
@@ -158,9 +175,18 @@ export default function HighlightDetailInStackScreen() {
         .eq('id', highlightId)
         .maybeSingle();
 
-      if (error || !h) {
+      if (error) {
+        logger.error('[highlight-detail] primary fetch failed', { err: error, highlightId });
         setHighlight(null);
         setPlaybackUri(null);
+        setHighlightLoadError(true);
+        setLoading(false);
+        return;
+      }
+      if (!h) {
+        setHighlight(null);
+        setPlaybackUri(null);
+        setHighlightLoadError(false);
         setLoading(false);
         return;
       }
@@ -186,7 +212,7 @@ export default function HighlightDetailInStackScreen() {
 
       const profilePromise = supabase
         .from('profiles')
-        .select('name, username, avatar_url')
+        .select('name, username, avatar_url, rep_level')
         .eq('user_id', h.user_id)
         .maybeSingle();
 
@@ -230,6 +256,7 @@ export default function HighlightDetailInStackScreen() {
         profile_name: profile.data?.name || null,
         profile_username: profile.data?.username || null,
         profile_avatar_url: profile.data?.avatar_url || null,
+        profile_rep_level: (profile.data as { rep_level?: string | null } | null)?.rep_level ?? null,
       });
       setLikeCount(count || 0);
       setViewCount(vCount || 0);
@@ -238,33 +265,38 @@ export default function HighlightDetailInStackScreen() {
       setIsLiked(userLiked);
       setPlaybackUri(resolvedPlayback);
     } catch (err) {
-      if (__DEV__) console.warn('[highlight-detail] load', err);
+      logger.error('[highlight-detail] load threw', { err, highlightId });
       setHighlight(null);
       setPlaybackUri(null);
+      setHighlightLoadError(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [highlightId, user]);
 
   const loadComments = useCallback(async () => {
     if (!highlightId) return;
     setCommentsLoading(true);
+    setCommentsLoadError(false);
     try {
       const data = await loadHighlightComments(highlightId);
       setComments(data);
+    } catch (err) {
+      logger.error('[highlight-detail] comments load failed', { err, highlightId });
+      setCommentsLoadError(true);
+      setComments([]);
     } finally {
       setCommentsLoading(false);
     }
   }, [highlightId]);
 
   useEffect(() => {
-    loadHighlight();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightId]);
+    void loadHighlight();
+  }, [loadHighlight]);
 
   useEffect(() => {
     if (highlightId) recordHighlightView(highlightId, user?.id ?? null);
-  }, [highlightId, user?.id]);
+  }, [highlightId, user]);
 
   useEffect(() => {
     // Use highlightId + loading, not full highlight object, to avoid re-fetching comments on every
@@ -282,21 +314,22 @@ export default function HighlightDetailInStackScreen() {
     setTogglingLike(true);
 
     try {
-      if (wasLiked) {
-        await supabase
-          .from('highlight_likes')
-          .delete()
-          .eq('highlight_id', highlightId)
-          .eq('user_id', user.id);
+      const { success, newLikedState } = await toggleHighlightLike(
+        highlightId,
+        user.id,
+        wasLiked
+      );
+      if (!success) {
+        setIsLiked(wasLiked);
+        setLikeCount((c) => c + (wasLiked ? 1 : -1));
+        Alert.alert('Error', 'Could not update like.');
       } else {
-        await supabase
-          .from('highlight_likes')
-          .insert({ highlight_id: highlightId, user_id: user.id });
+        setIsLiked(newLikedState);
       }
     } catch (error) {
       if (__DEV__) console.warn('[highlight-detail:toggleLike]', error);
       setIsLiked(wasLiked);
-      setLikeCount((c) => c - (wasLiked ? -1 : 1));
+      setLikeCount((c) => c + (wasLiked ? 1 : -1));
       Alert.alert('Error', 'Could not update like.');
     } finally {
       setTogglingLike(false);
@@ -348,7 +381,7 @@ export default function HighlightDetailInStackScreen() {
     try {
       await Share.share({
         title: 'Highlight',
-        message: `Check out this highlight. playrate://profile/highlights/${highlight.id}`,
+        message: `Check out this highlight. ${playrateHighlightUrl(highlight.id)}`,
       });
     } catch (error) {
       if (__DEV__) console.warn('[highlight-detail:share]', error);
@@ -373,12 +406,29 @@ export default function HighlightDetailInStackScreen() {
     );
   }
 
+  if (highlightLoadError) {
+    return (
+      <Screen>
+        <Header title="Highlight" />
+        <View style={[styles.center, { flex: 1 }]}>
+          <ErrorState onRetry={() => void loadHighlight()} />
+        </View>
+      </Screen>
+    );
+  }
+
   if (!highlight) {
     return (
       <Screen>
         <Header title="Highlight" />
         <View style={[styles.center, { flex: 1 }]}>
-          <Text style={[styles.errorText, { color: colors.textMuted }]}>Highlight not found</Text>
+          <EmptyState
+            title="This highlight isn't available"
+            subtitle="It may have been deleted or you may not have access."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+            icon="play.rectangle.fill"
+          />
         </View>
       </Screen>
     );
@@ -398,10 +448,16 @@ export default function HighlightDetailInStackScreen() {
         ]}
       >
         <View style={styles.commentHeader}>
-          <TouchableOpacity onPress={() => router.push(`/athletes/${item.user_id}/profile`)}>
-            <Text style={[styles.commentUsername, { color: colors.text }]}>
-              {item.profile_name || item.profile_username || 'User'}
-            </Text>
+          <TouchableOpacity
+            style={styles.commentAuthorTouch}
+            onPress={() => router.push(`/athletes/${item.user_id}/profile`)}
+          >
+            <View style={styles.commentNameRow}>
+              <Text style={[styles.commentUsername, { color: colors.text }]} numberOfLines={1}>
+                {item.profile_name || item.profile_username || 'User'}
+              </Text>
+              <TierBadge tierName={item.profile_rep_level} size="sm" />
+            </View>
           </TouchableOpacity>
           <Text style={[styles.commentTime, { color: colors.textMuted }]}>{formatTimeAgo(item.created_at)}</Text>
         </View>
@@ -432,7 +488,7 @@ export default function HighlightDetailInStackScreen() {
       >
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + Spacing.lg }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPadding + Spacing.lg }]}
           showsVerticalScrollIndicator={false}
         >
           <Card style={styles.card}>
@@ -443,7 +499,12 @@ export default function HighlightDetailInStackScreen() {
             >
               <ProfilePicture avatarUrl={highlight.profile_avatar_url} size={40} editable={false} />
               <View style={styles.profileText}>
-                <Text style={[styles.profileName, { color: colors.text }]}>{highlight.profile_name || 'Unknown'}</Text>
+                <View style={styles.profileNameRow}>
+                  <Text style={[styles.profileName, { color: colors.text }]} numberOfLines={1}>
+                    {highlight.profile_name || 'Unknown'}
+                  </Text>
+                  <TierBadge tierName={highlight.profile_rep_level} size="sm" />
+                </View>
                 <Text style={[styles.profileUsername, { color: colors.textMuted }]}>@{highlight.profile_username || 'user'}</Text>
               </View>
             </TouchableOpacity>
@@ -462,6 +523,7 @@ export default function HighlightDetailInStackScreen() {
                 <HighlightVideo
                   uri={playbackUri || highlight.media_url}
                   posterImageUri={highlight.thumbnail_url}
+                  isActive={isFocused}
                 />
               ) : (
                 <Image
@@ -544,8 +606,13 @@ export default function HighlightDetailInStackScreen() {
             <Text style={[styles.commentsSectionTitle, { color: colors.text }]}>Comments</Text>
             {commentsLoading ? (
               <ActivityIndicator size="small" color={colors.primary} style={styles.commentsLoader} />
+            ) : commentsLoadError ? (
+              <ErrorState onRetry={() => void loadComments()} />
             ) : comments.length === 0 ? (
-              <Text style={[styles.noComments, { color: colors.textMuted }]}>No comments yet. Be the first!</Text>
+              <EmptyState
+                title="No comments yet. Start the conversation!"
+                subtitle="Be the first to leave a reply on this highlight."
+              />
             ) : (
               comments.map((item) => <View key={item.id}>{renderComment({ item })}</View>)
             )}
@@ -597,8 +664,9 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: Spacing.xl },
   card: { margin: Spacing.md },
   profileRow: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.md },
-  profileText: { marginLeft: Spacing.md },
-  profileName: { ...Typography.bodyBold },
+  profileText: { marginLeft: Spacing.md, flex: 1, minWidth: 0 },
+  profileNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  profileName: { ...Typography.bodyBold, flexShrink: 1 },
   profileUsername: { ...Typography.mutedSmall },
   mediaContainer: {
     alignSelf: 'center',
@@ -628,7 +696,9 @@ const styles = StyleSheet.create({
   commentRow: { flexDirection: 'row', marginBottom: Spacing.md },
   commentContent: { flex: 1, marginLeft: Spacing.sm },
   commentHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
-  commentUsername: { ...Typography.bodyBold, fontSize: 13, marginRight: Spacing.sm },
+  commentAuthorTouch: { flex: 1, minWidth: 0, marginRight: Spacing.sm },
+  commentNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
+  commentUsername: { ...Typography.bodyBold, fontSize: 13, flexShrink: 1 },
   commentTime: { ...Typography.mutedSmall, fontSize: 11 },
   commentReplyTo: { fontSize: 12, marginBottom: 2 },
   commentBody: { ...Typography.body, fontSize: 14, lineHeight: 20 },

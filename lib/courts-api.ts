@@ -1,9 +1,67 @@
 import { supabase } from './supabase';
+import { escapeIlikePattern } from '@/lib/ilike-escape';
 import { getFollowedCourtIds } from './court-follows';
 import { logDevError } from './dev-log';
+import { logger } from './logger';
+import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from './sanitize';
+import { prepareCourtPhotoImageForUpload } from './image-upload-prepare';
+import { resolveMediaUrlForPlayback } from './storage-media-url';
+import { isRpcRateLimitError, RPC_RATE_LIMIT_USER_MESSAGE } from './rpc-rate-limit';
 
 /** UUID format; court_id columns are UUID — non-UUID ids (e.g. "1" from mock runs) skip DB query */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const EARTH_RADIUS_KM = 6371;
+
+/**
+ * Great-circle distance in kilometers (Haversine).
+ * Shared by nearby-court discovery and check-in proximity.
+ */
+export function haversineDistanceKm(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_KM * c;
+}
+
+export function haversineDistanceMeters(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  return haversineDistanceKm(lat1, lng1, lat2, lng2) * 1000;
+}
+
+/** Max distance from the court pin for a successful check-in (client-side geofence; beta). */
+export const COURT_CHECK_IN_MAX_DISTANCE_METERS = 200;
+
+export function courtHasValidCheckInCoordinates(
+  court: Pick<Court, 'lat' | 'lng'>,
+): court is Pick<Court, 'lat' | 'lng'> & { lat: number; lng: number } {
+  const { lat, lng } = court;
+  return (
+    typeof lat === 'number' &&
+    typeof lng === 'number' &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
 
 export type Court = {
   id: string;
@@ -26,17 +84,6 @@ export type Court = {
   parking_type?: string | null; // 'Street', 'Lot', 'None'
   amenities?: string[] | null; // Array of amenities
   notes?: string | null; // General notes/rules
-};
-
-export type CourtComment = {
-  id: string;
-  message: string;
-  created_at: string;
-  user_id: string;
-  profile: {
-    name: string | null;
-    username: string | null;
-  } | null;
 };
 
 /** Row shape from court_sports select with sports!inner(name) */
@@ -64,7 +111,8 @@ export async function fetchCourts(userId?: string, searchQuery?: string) {
     .select('id, name, address, created_at');
 
   if (hasSearch) {
-    query = query.or(`name.ilike.%${trimmedSearch}%,address.ilike.%${trimmedSearch}%`);
+    const escaped = escapeIlikePattern(trimmedSearch);
+    query = query.or(`name.ilike.%${escaped}%,address.ilike.%${escaped}%`);
   }
   query = hasSearch
     ? query.order('name', { ascending: true })
@@ -74,7 +122,7 @@ export async function fetchCourts(userId?: string, searchQuery?: string) {
   const { data: courtsData, error: courtsError } = await query;
 
   if (courtsError) {
-    if (__DEV__) console.error('[fetchCourts] Query error:', courtsError);
+    logger.error('[fetchCourts] Courts query failed', { err: courtsError });
     throw courtsError;
   }
 
@@ -96,8 +144,8 @@ export async function fetchCourts(userId?: string, searchQuery?: string) {
     .select('court_id, sport_id, sports!inner(name)')
     .in('court_id', courtIds);
 
-  if (courtSportsError && __DEV__) {
-    console.warn('[fetchCourts] court sports', courtSportsError);
+  if (courtSportsError) {
+    logger.warn('[fetchCourts] Court sports join failed', { err: courtSportsError });
   }
 
   // Group sports by court_id
@@ -154,7 +202,7 @@ export async function fetchCourtById(courtId: string) {
     .maybeSingle();
 
   if (courtError && (courtError.message?.includes('column') || courtError.message?.includes('42703') || courtError.code === '42703')) {
-    if (__DEV__) console.log('New court detail columns not found, falling back to basic columns');
+    if (__DEV__) logger.info('[fetchCourtById] falling back to basic columns (detail columns missing)');
 
     const basicResult = await supabase
       .from('courts')
@@ -255,54 +303,6 @@ function deriveAmenitiesFromFields(courtData: any): string[] {
 }
 
 /**
- * Fetch comments for a court with author information.
- * Possibly unused: not imported anywhere; CourtComments component is also unused.
- */
-export async function fetchCourtComments(courtId: string): Promise<CourtComment[]> {
-  const { data: commentsData, error: commentsError } = await supabase
-    .from('court_comments')
-    .select('id, message, created_at, user_id')
-    .eq('court_id', courtId)
-    .order('created_at', { ascending: false });
-
-  if (commentsError) {
-    throw commentsError;
-  }
-
-  if (!commentsData || commentsData.length === 0) {
-    return [];
-  }
-
-  const userIds = [...new Set(commentsData.map(c => c.user_id))];
-  const { data: profilesData, error: profilesError } = await supabase
-    .from('profiles')
-    .select('user_id, name, username')
-    .in('user_id', userIds);
-
-  if (profilesError && __DEV__) {
-    console.warn('[court-comments] profiles', profilesError);
-  }
-
-  const profileMap: Record<string, { name: string | null; username: string | null }> = {};
-  if (profilesData) {
-    profilesData.forEach(profile => {
-      profileMap[profile.user_id] = {
-        name: profile.name,
-        username: profile.username,
-      };
-    });
-  }
-
-  return commentsData.map(comment => ({
-    id: comment.id,
-    message: comment.message,
-    created_at: comment.created_at,
-    user_id: comment.user_id,
-    profile: profileMap[comment.user_id] || null,
-  }));
-}
-
-/**
  * Fetch courts near a specific location within a radius (in kilometers).
  */
 export async function fetchCourtsNearLocation(
@@ -340,20 +340,8 @@ export async function fetchCourtsNearLocation(
 
   const courtsWithinRadius = courtsData.filter((court) => {
     if (court.lat === null || court.lng === null) return false;
-
-    const R = 6371;
-    const dLat = (court.lat - centerLat) * Math.PI / 180;
-    const dLng = (court.lng - centerLng) * Math.PI / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(centerLat * Math.PI / 180) *
-        Math.cos(court.lat * Math.PI / 180) *
-        Math.sin(dLng / 2) *
-        Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-
-    return distance <= radiusKm;
+    const distanceKm = haversineDistanceKm(centerLat, centerLng, court.lat, court.lng);
+    return distanceKm <= radiusKm;
   });
 
   const courtIds = courtsWithinRadius.map(c => c.id);
@@ -402,6 +390,7 @@ export type LeaderboardEntry = {
   last_check_in: string;
   display_name: string | null;
   username: string | null;
+  rep_level: string | null;
 };
 
 export async function checkInCourt(courtId: string): Promise<CheckInResult> {
@@ -410,6 +399,9 @@ export async function checkInCourt(courtId: string): Promise<CheckInResult> {
   });
 
   if (error) {
+    if (isRpcRateLimitError(error)) {
+      throw new Error(RPC_RATE_LIMIT_USER_MESSAGE);
+    }
     throw error;
   }
 
@@ -467,7 +459,10 @@ export async function getCourtLeaderboard(courtId: string, limit: number = 10): 
     throw error;
   }
 
-  return (data || []) as LeaderboardEntry[];
+  return (data || []).map((row: Record<string, unknown>) => ({
+    ...row,
+    rep_level: (row.rep_level as string | null | undefined) ?? null,
+  })) as LeaderboardEntry[];
 }
 
 export type CourtRatingInfo = {
@@ -591,33 +586,37 @@ export async function fetchCourtPhotos(courtId: string): Promise<CourtPhoto[]> {
     return [];
   }
 
-  return data.map((photo) => ({
-    ...photo,
-    url: supabase.storage.from('court-photos').getPublicUrl(photo.storage_path).data.publicUrl,
-  }));
+  return Promise.all(
+    data.map(async (photo) => {
+      const publicUrl = supabase.storage.from('court-photos').getPublicUrl(photo.storage_path).data.publicUrl;
+      const resolved = await resolveMediaUrlForPlayback(publicUrl);
+      return { ...photo, url: resolved || publicUrl };
+    })
+  );
 }
 
 export async function uploadCourtPhoto(
   courtId: string,
   userId: string,
   slot: number,
-  imageUri: string
+  imageUri: string,
+  pickerDimensions?: { width?: number | null; height?: number | null }
 ): Promise<CourtPhoto> {
   if (slot < 1 || slot > 4) {
     throw new Error('Slot must be between 1 and 4');
   }
 
-  const response = await fetch(imageUri);
+  const prepared = await prepareCourtPhotoImageForUpload(imageUri, pickerDimensions);
+  const response = await fetch(prepared.uri);
   const blob = await response.blob();
 
-  const fileExt = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
-  const fileName = `${courtId}-${slot}-${Date.now()}.${fileExt}`;
+  const fileName = `${courtId}-${slot}-${Date.now()}.jpg`;
   const storagePath = `${courtId}/${userId}/${fileName}`;
 
   const { error: uploadError } = await supabase.storage
     .from('court-photos')
     .upload(storagePath, blob, {
-      contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+      contentType: prepared.contentType,
       upsert: true,
     });
 
@@ -710,4 +709,34 @@ export async function getAvailableSlots(courtId: string): Promise<number[]> {
 
   const usedSlots = new Set(data?.map((p) => p.slot) || []);
   return [1, 2, 3, 4].filter((slot) => !usedSlots.has(slot));
+}
+
+/** Insert a pending suggestion; does not modify courts row. RLS: suggested_by must be auth.uid(). */
+export async function submitCourtEditSuggestion(
+  courtId: string,
+  userId: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const next: Record<string, unknown> = { ...payload };
+  if ('message' in next && typeof next.message === 'string') {
+    const msg = sanitizeText(next.message, SANITIZE_LIMITS.courtEditSuggestion, { multiline: true });
+    if (!msg) {
+      throw new Error('Suggestion cannot be empty.');
+    }
+    if (isOffensiveContent(msg)) {
+      throw new Error('Your suggestion could not be submitted.');
+    }
+    next.message = msg;
+  }
+
+  const { error } = await supabase.from('court_edit_suggestions').insert({
+    court_id: courtId,
+    suggested_by: userId,
+    payload: next,
+  });
+
+  if (error) {
+    if (__DEV__) console.warn('[submitCourtEditSuggestion]', error);
+    throw error;
+  }
 }

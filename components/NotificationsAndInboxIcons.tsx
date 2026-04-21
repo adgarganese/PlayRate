@@ -43,7 +43,7 @@ export function NotificationsAndInboxIcons() {
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       >
         <View style={styles.iconWrap}>
-          <IconSymbol name="envelope.fill" size={24} color={colors.textMuted} />
+          <IconSymbol name="bell.fill" size={24} color={colors.textMuted} />
           {inboxBadgeCount > 0 && (
             <View style={[styles.badge, { backgroundColor: colors.primary }]}>
               <Text style={styles.badgeText} numberOfLines={1}>

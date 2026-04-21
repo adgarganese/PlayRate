@@ -8,9 +8,8 @@ import {
   SectionList,
   StyleSheet,
   RefreshControl,
-  TextInput as RNTextInput,
   TouchableOpacity,
-  ActivityIndicator,
+  TextInput as RNTextInput,
   type SectionListRenderItemInfo,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -19,17 +18,19 @@ import { fetchCourts, type Court } from '@/lib/courts';
 import CourtCard from '@/components/CourtCard';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { AppText } from '@/components/ui/AppText';
 import { CourtListSkeleton } from '@/components/skeletons/CourtListSkeleton';
-import { ErrorScreen } from '@/components/ui/ErrorScreen';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyCourtIllustration } from '@/components/illustrations';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { trackOnce } from '@/lib/analytics';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { AnimatedListItem } from '@/components/ui/AnimatedListItem';
 import { hapticSuccess } from '@/lib/haptics';
+import { logger } from '@/lib/logger';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type CourtSection = {
   title: string;
@@ -40,33 +41,30 @@ export default function CourtsScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors, isDark } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [sections, setSections] = useState<CourtSection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [searching, setSearching] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const DEBOUNCE_MS = 350;
+  const SEARCH_DEBOUNCE_MS = 300;
 
-  // Debounce search input
   useEffect(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    if (!searchInput.trim()) {
+    const trimmed = searchInput.trim();
+    if (!trimmed) {
       setSearchQuery('');
       return;
     }
 
-    setSearching(true);
-
     debounceTimerRef.current = setTimeout(() => {
-      setSearchQuery(searchInput.trim());
-      setSearching(false);
-    }, DEBOUNCE_MS);
+      setSearchQuery(trimmed);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
       if (debounceTimerRef.current) {
@@ -114,6 +112,7 @@ export default function CourtsScreen() {
       }
       return true;
     } catch (err) {
+      logger.error('[courts-list] loadCourts failed', { err, userId: user?.id });
       const errorMessage = err instanceof Error ? err.message : 'Failed to load courts';
 
       if (errorMessage.includes('permission') || errorMessage.includes('42501')) {
@@ -128,7 +127,6 @@ export default function CourtsScreen() {
       } else {
         setLoading(false);
       }
-      setSearching(false);
     }
   }, [user?.id, searchQuery]);
 
@@ -151,21 +149,6 @@ export default function CourtsScreen() {
     router.push(`/courts/${courtId}`);
   };
 
-  const handleClearSearch = () => {
-    setSearchInput('');
-    setSearchQuery('');
-  };
-
-  if (error) {
-    return (
-      <ErrorScreen
-        message={error}
-        onRetry={() => loadCourts()}
-        retryLabel="Retry"
-      />
-    );
-  }
-
   const renderSectionHeader = ({ section }: { section: CourtSection }) => (
     <View style={[styles.sectionHeader, { backgroundColor: colors.bg }]}>
       <AppText variant="bodyBold" color="text">{section.title}</AppText>
@@ -185,7 +168,7 @@ export default function CourtsScreen() {
     );
   };
 
-  const isLoading = loading || searching;
+  const isLoading = loading;
 
   return (
     <Screen>
@@ -195,60 +178,67 @@ export default function CourtsScreen() {
           subtitle="Find Courts. Check In. Take Over."
           subtitleTagline
           showBack={false}
-          rightIcon={
-            user
-              ? {
-                  name: 'plus.circle.fill',
-                  onPress: () => router.push('/courts/new'),
-                  accessibilityLabel: 'Add new court',
-                }
-              : undefined
+          rightElement={
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={() => router.push('/courts/find')}
+                accessibilityLabel="Map view"
+                accessibilityRole="button"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <IconSymbol name="map" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+              {user ? (
+                <TouchableOpacity
+                  style={styles.headerIconButton}
+                  onPress={() => router.push('/courts/new')}
+                  accessibilityLabel="Add new court"
+                  accessibilityRole="button"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <IconSymbol name="plus.circle.fill" size={24} color={colors.textMuted} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
           }
         />
 
-        <View style={[styles.searchContainer, { backgroundColor: colors.bg }]}>
-          <View style={[styles.searchInputContainer, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-            <IconSymbol
-              name="magnifyingglass"
-              size={18}
-              color={colors.textMuted}
-              style={styles.searchIcon}
-            />
-            <RNTextInput
-              style={[styles.searchInput, { color: colors.text }]}
-              placeholder="Search courts by name, address, or city..."
-              placeholderTextColor={colors.textMuted}
-              value={searchInput}
-              onChangeText={setSearchInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
-            {searchInput.length > 0 && (
-              <TouchableOpacity
-                onPress={handleClearSearch}
-                style={styles.clearButton}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                accessibilityLabel="Clear search"
-              >
-                <IconSymbol name="xmark.circle.fill" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            )}
-          </View>
-          {searching && (
-            <View style={styles.searchingContainer}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <AppText variant="mutedSmall" color="textMuted">Searching...</AppText>
-            </View>
-          )}
+        <View style={styles.searchContainer}>
+          <RNTextInput
+            style={[
+              styles.searchInput,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                color: colors.text,
+              },
+            ]}
+            placeholder="Search courts by name, address, or city..."
+            placeholderTextColor={colors.textMuted}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            accessibilityLabel="Search courts"
+            returnKeyType="search"
+          />
         </View>
 
-        {loading && !searchQuery ? (
+        {error ? (
+          <View style={styles.errorStateWrap}>
+            <ErrorState subtitle={error} onRetry={() => void loadCourts()} />
+          </View>
+        ) : loading && !searchQuery ? (
           <CourtListSkeleton />
         ) : sections.length > 0 ? (
           <SectionList
             style={{ backgroundColor: isDark ? colors.bg : undefined }}
-            contentContainerStyle={[styles.listContainer, isDark ? { backgroundColor: colors.bg } : undefined]}
+            contentContainerStyle={[
+              styles.listContainer,
+              isDark ? { backgroundColor: colors.bg } : undefined,
+              { paddingBottom: scrollBottomPadding },
+            ]}
             sections={sections}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
@@ -263,9 +253,9 @@ export default function CourtsScreen() {
             }
             ListEmptyComponent={
               <EmptyState
-                title={searchQuery ? `No courts found for "${searchQuery}"` : 'No courts yet.'}
-                subtitle={searchQuery ? 'Try adjusting your search terms' : undefined}
-                actionLabel={!searchQuery && user ? 'Add First Court' : undefined}
+                title={searchQuery ? `No courts found for "${searchQuery}"` : 'No courts found nearby. Add one!'}
+                subtitle={searchQuery ? 'Try adjusting your search terms' : 'Help the community map places to play.'}
+                actionLabel={!searchQuery && user ? 'Add court' : undefined}
                 onAction={!searchQuery && user ? () => router.push('/courts/new') : undefined}
                 illustration={<EmptyCourtIllustration />}
               />
@@ -273,9 +263,9 @@ export default function CourtsScreen() {
           />
         ) : !isLoading ? (
           <EmptyState
-            title={searchQuery ? `No courts found for "${searchQuery}"` : 'No courts yet.'}
-            subtitle={searchQuery ? 'Try adjusting your search terms' : undefined}
-            actionLabel={!searchQuery && user ? 'Add First Court' : undefined}
+            title={searchQuery ? `No courts found for "${searchQuery}"` : 'No courts found nearby. Add one!'}
+            subtitle={searchQuery ? 'Try adjusting your search terms' : 'Help the community map places to play.'}
+            actionLabel={!searchQuery && user ? 'Add court' : undefined}
             onAction={!searchQuery && user ? () => router.push('/courts/new') : undefined}
             illustration={<EmptyCourtIllustration />}
           />
@@ -286,50 +276,40 @@ export default function CourtsScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: -Spacing.sm,
+    gap: Spacing.xs,
+  },
+  headerIconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorStateWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 280,
+  },
   pageBackground: {
     flex: 1,
   },
-  listContainer: {
-    paddingBottom: Spacing.xl,
-  },
+  listContainer: {},
   sectionHeader: {
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
   },
   searchContainer: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.md,
-    height: 44,
-  },
-  searchIcon: {
-    marginRight: Spacing.sm,
+    paddingBottom: Spacing.md,
   },
   searchInput: {
-    flex: 1,
     ...Typography.body,
-    paddingVertical: 0,
-    height: '100%',
-  },
-  clearButton: {
-    marginLeft: Spacing.xs,
-    padding: Spacing.xs,
-  },
-  searchingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: Radius.sm,
     padding: Spacing.md,
-    gap: Spacing.sm,
-  },
-  searchingText: {
-    ...Typography.mutedSmall,
+    minHeight: 44,
   },
 });

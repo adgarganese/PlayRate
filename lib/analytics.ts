@@ -7,6 +7,7 @@
 import { PostHog } from 'posthog-react-native';
 
 import { posthogApiKey as API_KEY, posthogHost as HOST } from '@/lib/config';
+import { logger } from '@/lib/logger';
 
 let posthogKeyWarned = false;
 /** Call once at app start when key is missing; dev-only one-time warning. */
@@ -57,12 +58,15 @@ const DEBUG_ANALYTICS =
     process.env.DEBUG_ANALYTICS === '1'
   ));
 
-/** In development, do not send events to PostHog unless analytics is explicitly enabled. */
+/**
+ * In development, do not send events to PostHog unless DEBUG_ANALYTICS is set.
+ * Release builds (TestFlight, Play internal) have __DEV__ === false, so events are sent when the PostHog key is configured.
+ */
 const shouldCapture = () => !__DEV__ || DEBUG_ANALYTICS;
 
 export function track(eventName: string, properties?: Record<string, unknown>): void {
   if (__DEV__ && DEBUG_ANALYTICS) {
-    console.log('[Analytics]', eventName, properties ?? {});
+    logger.info('[Analytics]', { eventName, properties: properties ?? {} });
   }
   if (shouldCapture()) {
     posthogClient?.capture(eventName, properties as Record<string, any> | undefined);
@@ -78,7 +82,7 @@ export async function trackOnce(
   if (trackOnceKeys.has(key)) return;
   trackOnceKeys.add(key);
   if (__DEV__ && DEBUG_ANALYTICS) {
-    console.log('[Analytics]', eventName, '(trackOnce)', properties ?? {});
+    logger.info('[Analytics:trackOnce]', { eventName, properties: properties ?? {} });
   }
   if (shouldCapture()) {
     posthogClient?.capture(eventName, properties as Record<string, any> | undefined);

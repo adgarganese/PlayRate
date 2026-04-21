@@ -1,9 +1,12 @@
 import { useState, useCallback } from 'react';
+import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import { Button } from '@/components/ui/Button';
 import { ProfileNavPill } from '@/components/ProfileNavPill';
 import { getOrCreateConversation } from '@/lib/dms';
+import { RPC_RATE_LIMIT_USER_MESSAGE } from '@/lib/rpc-rate-limit';
+import { logger } from '@/lib/logger';
 import type { ViewStyle } from 'react-native';
 
 type MessageButtonProps = {
@@ -37,7 +40,11 @@ export function MessageButton({
       const conversationId = await getOrCreateConversation(user.id, targetUserId);
       router.push(`/chat/${conversationId}`);
     } catch (e) {
-      if (__DEV__) console.error('Open conversation:', e);
+      if (e instanceof Error && e.message === RPC_RATE_LIMIT_USER_MESSAGE) {
+        Alert.alert('Slow down', RPC_RATE_LIMIT_USER_MESSAGE);
+      } else if (__DEV__) {
+        logger.error('Open conversation failed', { err: e });
+      }
     } finally {
       setLoading(false);
     }

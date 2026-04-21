@@ -1,17 +1,20 @@
 {
-  "cli": { "version": ">= 13.2.0" },
+  "cli": { "version": ">= 13.2.0", "appVersionSource": "local" },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": { "simulator": true }
+      "channel": "development",
+      "ios": { "simulator": false }
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "ios": { "simulator": false, "image": "latest" },
       "env": { "EXPO_CACHE_DIR": "/tmp/expo-cache", "SENTRY_ALLOW_FAILURE": "true" }
     },
     "production": {
+      "channel": "production",
       "ios": { "simulator": false, "image": "latest" },
       "env": { "EXPO_CACHE_DIR": "/tmp/expo-cache", "SENTRY_ALLOW_FAILURE": "true" }
     }

@@ -4,6 +4,7 @@ import type { ScrollView as ScrollViewType } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing } from '@/constants/theme';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type KeyboardScreenProps = {
   children: React.ReactNode;
@@ -30,6 +31,7 @@ export const KeyboardScreen = React.forwardRef<ScrollViewType, KeyboardScreenPro
 }, ref) {
   const insets = useSafeAreaInsets();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding('default');
 
   // Use 0 by default: KeyboardScreen is used full-screen with custom Header inside the scroll,
   // so there is no native header above the KAV. Pass explicit offset only when the KAV sits below a native header.
@@ -44,9 +46,9 @@ export const KeyboardScreen = React.forwardRef<ScrollViewType, KeyboardScreenPro
         {
           flexGrow: 1,
           paddingHorizontal,
-          paddingBottom: Spacing.xl,
         },
         contentContainerStyle,
+        { paddingBottom: scrollBottomPadding },
       ]}
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}

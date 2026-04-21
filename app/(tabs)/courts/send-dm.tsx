@@ -27,12 +27,15 @@ import {
 } from '@/lib/dms';
 import { getCourtPreview, type CourtPreview } from '@/lib/courts';
 import { hapticMedium } from '@/lib/haptics';
+import { isRpcRateLimitError, RPC_RATE_LIMIT_USER_MESSAGE } from '@/lib/rpc-rate-limit';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 export default function SendCourtDmScreen() {
   const { courtId } = useLocalSearchParams<{ courtId: string }>();
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const [court, setCourt] = useState<CourtPreview | null>(null);
   const [users, setUsers] = useState<MessageableUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,8 +90,15 @@ export default function SendCourtDmScreen() {
       hapticMedium();
       Alert.alert('Sent', 'Court sent.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error) {
-      if (__DEV__) console.warn('[courts-send-dm]', error);
-      Alert.alert('Error', 'Could not send. Please try again.');
+      if (
+        isRpcRateLimitError(error) ||
+        (error instanceof Error && error.message === RPC_RATE_LIMIT_USER_MESSAGE)
+      ) {
+        Alert.alert('Slow down', RPC_RATE_LIMIT_USER_MESSAGE);
+      } else {
+        if (__DEV__) console.warn('[courts-send-dm]', error);
+        Alert.alert('Error', 'Could not send. Please try again.');
+      }
     } finally {
       setSending(false);
     }
@@ -139,6 +149,7 @@ export default function SendCourtDmScreen() {
             data={filtered}
             keyExtractor={(item) => item.user_id}
             style={styles.list}
+            contentContainerStyle={{ paddingBottom: Spacing.md }}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View style={styles.empty}>
@@ -173,7 +184,7 @@ export default function SendCourtDmScreen() {
               );
             }}
           />
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: scrollBottomPadding }]}>
             <Button
               title={sending ? 'Sending…' : 'Send'}
               onPress={handleSend}
@@ -228,6 +239,6 @@ const styles = StyleSheet.create({
   userName: { ...Typography.bodyBold },
   userUsername: { ...Typography.mutedSmall },
   pressed: { opacity: 0.8 },
-  footer: { padding: Spacing.lg, paddingBottom: Spacing.xl },
+  footer: { padding: Spacing.lg },
   sendButton: {},
 });

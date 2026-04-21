@@ -11,13 +11,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 import { useAuth } from '@/contexts/auth-context';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { ProfilePicture } from '@/components/ProfilePicture';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import {
@@ -26,7 +27,8 @@ import {
   HighlightComment,
 } from '@/lib/highlights';
 import { track } from '@/lib/analytics';
-import { devError } from '@/lib/logging';
+import { logger } from '@/lib/logger';
+import { TierBadge } from '@/components/ui/TierBadge';
 
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString);
@@ -48,11 +50,12 @@ export default function HighlightCommentsScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
-  const insets = useSafeAreaInsets();
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const flatListRef = useRef<FlatList>(null);
 
   const [comments, setComments] = useState<HighlightComment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [sending, setSending] = useState(false);
   const [inputText, setInputText] = useState('');
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
@@ -67,11 +70,14 @@ export default function HighlightCommentsScreen() {
   const loadComments = async () => {
     if (!highlightId) return;
     setLoading(true);
+    setLoadError(false);
     try {
       const data = await loadHighlightComments(highlightId);
       setComments(data);
     } catch (err) {
-      devError('HighlightComments', 'Load comments error:', err);
+      logger.error('Highlight comments: load failed', { err, highlightId });
+      setLoadError(true);
+      setComments([]);
     } finally {
       setLoading(false);
     }
@@ -96,7 +102,7 @@ export default function HighlightCommentsScreen() {
         }, 100);
       }
     } catch (err) {
-      devError('HighlightComments', 'Send comment error:', err);
+      logger.error('Highlight comments: send failed', { err, highlightId });
       setInputText(text);
       if (parentId) setReplyingToId(parentId);
     } finally {
@@ -119,10 +125,16 @@ export default function HighlightCommentsScreen() {
         ]}
       >
         <View style={styles.commentHeader}>
-          <TouchableOpacity onPress={() => router.push(`/athletes/${item.user_id}/profile` as any)}>
-            <Text style={[styles.commentUsername, { color: colors.text }]}>
-              {item.profile_name || item.profile_username || 'User'}
-            </Text>
+          <TouchableOpacity
+            style={styles.commentAuthorTouch}
+            onPress={() => router.push(`/athletes/${item.user_id}/profile` as any)}
+          >
+            <View style={styles.commentNameRow}>
+              <Text style={[styles.commentUsername, { color: colors.text }]} numberOfLines={1}>
+                {item.profile_name || item.profile_username || 'User'}
+              </Text>
+              <TierBadge tierName={item.profile_rep_level} size="sm" />
+            </View>
           </TouchableOpacity>
           <Text style={[styles.commentTime, { color: colors.textMuted }]}>
             {formatTimeAgo(item.created_at)}
@@ -158,6 +170,10 @@ export default function HighlightCommentsScreen() {
             <View style={[styles.loadingContainer, { backgroundColor: colors.bg }]}>
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
+          ) : loadError ? (
+            <View style={[styles.loadingContainer, { backgroundColor: colors.bg }]}>
+              <ErrorState onRetry={() => void loadComments()} />
+            </View>
           ) : (
             <FlatList
               contentInsetAdjustmentBehavior="never"
@@ -169,12 +185,12 @@ export default function HighlightCommentsScreen() {
               contentContainerStyle={[
                 styles.listContent,
                 comments.length === 0 && styles.emptyList,
-                { backgroundColor: colors.bg },
+                { backgroundColor: colors.bg, paddingBottom: Spacing.md },
               ]}
               ListEmptyComponent={
                 <EmptyState
-                  title="No comments yet"
-                  subtitle="Be the first to comment!"
+                  title="No comments yet. Start the conversation!"
+                  subtitle="Share encouragement or ask a question about this highlight."
                 />
               }
               onContentSizeChange={() => {
@@ -193,7 +209,7 @@ export default function HighlightCommentsScreen() {
             {
               backgroundColor: colors.bg,
               borderTopColor: colors.border,
-              paddingBottom: Math.max(insets.bottom, Spacing.sm),
+              paddingBottom: scrollBottomPadding,
             },
           ]}
         >
@@ -290,10 +306,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 2,
   },
+  commentAuthorTouch: { flex: 1, minWidth: 0, marginRight: Spacing.sm },
+  commentNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
   commentUsername: {
     ...Typography.bodyBold,
     fontSize: 13,
-    marginRight: Spacing.sm,
+    flexShrink: 1,
   },
   commentTime: {
     ...Typography.mutedSmall,

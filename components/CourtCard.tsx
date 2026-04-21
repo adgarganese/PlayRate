@@ -1,5 +1,6 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Card } from './Card';
+import { AnimatedPressable } from './ui/AnimatedPressable';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 
@@ -24,10 +25,7 @@ export default function CourtCard({ court, onPress }: CourtCardProps) {
   const { colors } = useThemeColors();
 
   return (
-    <TouchableOpacity
-      onPress={() => onPress(court.id)}
-      activeOpacity={0.7}
-    >
+    <AnimatedPressable onPress={() => onPress(court.id)}>
       <Card style={styles.courtCard}>
         <View style={styles.courtCardHeader}>
           <Text style={[styles.courtName, { color: colors.text }]}>{court.name}</Text>
@@ -52,7 +50,7 @@ export default function CourtCard({ court, onPress }: CourtCardProps) {
           <Text style={[styles.noSportsText, { color: colors.textMuted }]}>No sports listed</Text>
         )}
       </Card>
-    </TouchableOpacity>
+    </AnimatedPressable>
   );
 }
 

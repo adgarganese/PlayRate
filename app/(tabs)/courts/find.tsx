@@ -1,17 +1,20 @@
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, PROVIDER_DEFAULT, Region, Callout } from 'react-native-maps';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
 import { Button } from '@/components/ui/Button';
 import { fetchCourtsNearLocation, type Court } from '@/lib/courts';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
-import Constants from 'expo-constants';
-import { devError } from '@/lib/logging';
+import { googlePlacesApiKey } from '@/lib/config';
+import { logger } from '@/lib/logger';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 // Default region (can be customized - here using a central US location as fallback)
 const DEFAULT_REGION: Region = {
@@ -29,6 +32,7 @@ type MapCourt = Court & {
 export default function FindCourtsScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const tabBarHeight = React.useContext(BottomTabBarHeightContext) ?? 0;
   const mapRef = useRef<MapView>(null);
   const [courts, setCourts] = useState<MapCourt[]>([]);
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
@@ -37,8 +41,7 @@ export default function FindCourtsScreen() {
   const [locationPermissionStatus, setLocationPermissionStatus] = useState<Location.PermissionStatus | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
 
-  // Get Google Places API key from environment or constants
-  const GOOGLE_PLACES_API_KEY = Constants.expoConfig?.extra?.googlePlacesApiKey || process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
+  const placesApiKey = googlePlacesApiKey ?? '';
 
   useEffect(() => {
     requestLocationPermission();
@@ -51,7 +54,7 @@ export default function FindCourtsScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       setLocationPermissionStatus(status);
     } catch (err) {
-      devError('CourtsFind', 'Error requesting location permission:', err);
+      logger.error('CourtsFind: location permission request failed', { err });
       setLocationPermissionStatus('denied' as Location.PermissionStatus);
     }
   };
@@ -83,9 +86,8 @@ export default function FindCourtsScreen() {
 
       setCourts(courtsWithCoords);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load courts';
-      setError(errorMessage);
-      devError('CourtsFind', 'Error loading courts:', err);
+      logger.error('CourtsFind: load courts for region failed', { err });
+      setError("We couldn't load courts for this map area. Try again or zoom out.");
     } finally {
       setLoading(false);
     }
@@ -128,7 +130,7 @@ export default function FindCourtsScreen() {
       mapRef.current?.animateToRegion(newRegion, 1000);
       await loadCourtsForRegion(newRegion);
     } catch (err) {
-      devError('CourtsFind', 'Error getting location:', err);
+      logger.error('CourtsFind: get current location failed', { err });
       Alert.alert(
         'Location Error',
         'Unable to get your current location. Please try again.',
@@ -158,23 +160,6 @@ export default function FindCourtsScreen() {
     router.push(`/courts/${courtId}`);
   };
 
-  if (error && courts.length === 0) {
-    return (
-      <Screen>
-        <Header title="Find Courts" showBack={false} />
-        <View style={styles.errorContainer}>
-          <Text style={[styles.errorTitle, { color: colors.text }]}>Error</Text>
-          <Text style={[styles.errorText, { color: colors.textMuted }]}>{error}</Text>
-          <Button
-            title="Retry"
-            onPress={() => loadCourtsForRegion(region)}
-            variant="primary"
-          />
-        </View>
-      </Screen>
-    );
-  }
-
   return (
     <Screen style={styles.screen}>
       <Header title="Find Courts" showBack={false} />
@@ -185,7 +170,7 @@ export default function FindCourtsScreen() {
           placeholder="Search for an address..."
           onPress={handlePlaceSelected}
           query={{
-            key: GOOGLE_PLACES_API_KEY,
+            key: placesApiKey,
             language: 'en',
             components: 'country:us', // Restrict to US (optional, remove for global)
           }}
@@ -294,11 +279,17 @@ export default function FindCourtsScreen() {
           ))}
         </MapView>
 
-        {/* Loading Overlay */}
+        {/* Loading Overlay - bottom inset so it never covers the tab bar (TestFlight reliability) */}
         {loading && (
-          <View style={styles.loadingOverlay} pointerEvents="box-none">
+          <View style={[styles.loadingOverlay, { bottom: tabBarHeight }]} pointerEvents="box-none">
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading courts...</Text>
+          </View>
+        )}
+
+        {!loading && error && courts.length === 0 && (
+          <View style={[styles.errorOverlay, { bottom: tabBarHeight }]} pointerEvents="box-none">
+            <ErrorState onRetry={() => void loadCourtsForRegion(region)} />
           </View>
         )}
 
@@ -311,9 +302,16 @@ export default function FindCourtsScreen() {
 
         {/* No Results */}
         {!loading && courts.length === 0 && !error && (
-          <View style={[styles.noResultsContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.noResultsText, { color: colors.text }]}>No courts found in this area</Text>
-            <Text style={[styles.noResultsSubtext, { color: colors.textMuted }]}>Try zooming out or searching a different location</Text>
+          <View style={[styles.noResultsWrap, { bottom: tabBarHeight }]} pointerEvents="box-none">
+            <View style={[styles.noResultsContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <EmptyState
+                title="No courts found nearby. Add one!"
+                subtitle="Pan the map or search another area — or add a court if you know a spot we're missing."
+                actionLabel="Add court"
+                onAction={() => router.push('/courts/new')}
+                icon="mappin.and.ellipse"
+              />
+            </View>
           </View>
         )}
       </View>
@@ -388,6 +386,17 @@ const styles = StyleSheet.create({
   loadingText: {
     ...Typography.body,
   },
+  errorOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
   resultsBadge: {
     position: 'absolute',
     top: Spacing.md,
@@ -400,24 +409,24 @@ const styles = StyleSheet.create({
   resultsText: {
     ...Typography.mutedSmall,
   },
-  noResultsContainer: {
+  noResultsWrap: {
     position: 'absolute',
-    top: '40%',
-    left: Spacing.lg,
-    right: Spacing.lg,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
+  },
+  noResultsContainer: {
+    alignSelf: 'stretch',
+    maxWidth: 400,
+    alignItems: 'center',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
     borderRadius: Radius.md,
     borderWidth: 1,
-  },
-  noResultsText: {
-    ...Typography.bodyBold,
-    marginBottom: Spacing.xs,
-    textAlign: 'center',
-  },
-  noResultsSubtext: {
-    ...Typography.muted,
-    textAlign: 'center',
   },
   calloutContainer: {
     width: 200,
@@ -435,19 +444,5 @@ const styles = StyleSheet.create({
     ...Typography.muted,
     fontSize: 12,
     fontStyle: 'italic',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.xl,
-    gap: Spacing.lg,
-  },
-  errorTitle: {
-    ...Typography.h3,
-  },
-  errorText: {
-    ...Typography.muted,
-    textAlign: 'center',
   },
 });

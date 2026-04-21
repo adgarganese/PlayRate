@@ -10,7 +10,7 @@ These events are used for beta analytics. All are fired via `track()` or `trackO
 | **court_opened** | User opens a court detail screen | `app/(tabs)/courts/[courtId].tsx` (court_id, court_name) |
 | **run_opened** | User opens a run detail screen | `app/(tabs)/courts/run/[runId].tsx` (trackOnce; run_id, band) |
 | **run_joined** | User joins a run (tap “Join run”) | `lib/runs.ts` `joinRun()` (run_id) |
-| **check_in_completed** | User checks in at a court | `app/(tabs)/courts/[courtId].tsx` (run_id) |
+| **check_in_completed** | User checks in at a court | `app/(tabs)/courts/[courtId].tsx` (`court_id`) |
 | **recap_opened** | User opens run recap screen | `app/runs/[id]/recap.tsx` (trackOnce; run_id) |
 | **cosign_given** | User gives a cosign on recap | `app/runs/[id]/recap.tsx` |
 | **recap_completed** | User completes recap (submits cosigns) | `app/runs/[id]/recap.tsx` (run_id, cosigns_count) |

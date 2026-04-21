@@ -41,34 +41,50 @@ No additional native setup required for react-native-maps with Expo.
 - **Environment variable**: `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`
 - **app.json**: Already configured at `android.config.googleMaps.apiKey` (uses the env var)
 
-**Example**:
+**Example** (use your real key from Google Cloud; do not commit it):
 ```bash
-EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaSyExampleKey123456789
+EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=your_maps_sdk_android_key
 ```
 
 **Note**: iOS uses Apple Maps by default (no key required). If you want Google Maps on iOS, you'll need to add `googleMapsApiKey` to `ios.config.googleMaps` as well.
 
-### 2. Google Places API Key
+### 2. Google Places + Geocoding keys (REST, from the app)
 
-**Purpose**: Power the address autocomplete search bar
+**Purpose**
 
-**Where to get it**:
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Same project as above (or different)
-3. Enable the **Places API** and **Places API (New)** APIs
-4. If using an existing API key, ensure it has Places API enabled
-5. Restrict the API key to "Places API" for security
+| Variable | Used for | Google APIs to enable on that key |
+|----------|-----------|-----------------------------------|
+| `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` | Find Courts search (`GooglePlacesAutocomplete`): legacy **Place Autocomplete** + **Place Details** | **Places API** (legacy autocomplete/details) |
+| `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY` (optional) | Add court flow: `geocodeAddress()` in `lib/geocoding.ts` | **Geocoding API** |
+| *(fallback)* | If geocoding env is empty, geocoding uses `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` | That key must enable **Geocoding API** as well |
 
-**Billing**: Google Places API requires billing to be enabled. You get $200 free credit per month, which covers approximately 40,000+ requests.
+**Implementation notes**
 
-**Where to put it**:
-- **Environment variable**: `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
-- **app.json**: Already configured at `extra.googlePlacesApiKey` (uses the env var)
-- **In code**: The `find.tsx` screen reads from `Constants.expoConfig?.extra?.googlePlacesApiKey` or `process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
+- `react-native-google-places-autocomplete` defaults to **legacy** endpoints: `.../place/autocomplete/json` and `.../place/details/json` on `maps.googleapis.com/maps/api` (not Places API (New) unless you pass `isNewPlacesAPI`).
+- Geocoding uses `GET .../maps/api/geocode/json?address=...&key=...`.
+- **There is no proxy**: these keys are loaded from env / `app.json` extra only (see `lib/config.ts`). They are **not** hardcoded in source. They **are** embedded in the client bundle (`EXPO_PUBLIC_*`) and sent as **`key=` query parameters** on HTTPS requests to Google, so treat them as **public** and **lock them down in Google Cloud** (API restrictions + app restrictions).
+
+**Where to get keys**:
+1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → enable the APIs above.
+2. Create credentials → API key(s). Prefer **one key for Android Maps SDK only** and **one key for Places+Geocoding** (or split Places vs Geocoding with two keys using `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY`).
+
+**Recommended restrictions**
+
+- **Maps key** (`EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`): Application restriction **Android apps** (package `com.playrate.app` + SHA-1). API restriction: **Maps SDK for Android** only.
+- **Places / Geocoding key(s)**: Application restriction **Android app** and/or **iOS app** (bundle `com.playrate.app`) for requests from React Native, when supported for your enabled APIs. API restriction: only **Places API** and/or **Geocoding API** (not Maps SDK). Splitting geocoding to `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY` lets you restrict that key to Geocoding API only.
+- For stronger security than client-side keys, move Places autocomplete and geocoding behind **your own backend** and use a **server-restricted** key or no key in the app.
+
+**Billing**: Places and Geocoding require billing on the GCP project; free tier credits apply per Google’s pricing.
+
+**Where to put them**:
+- **Environment**: `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`, optional `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY`
+- **app.json** `extra`: `googlePlacesApiKey`, `googleGeocodingApiKey` (substituted at build from the same env names)
+- **In code**: `lib/config.ts` (`googlePlacesApiKey`, `googleGeocodingApiKey`); Find Courts uses `googlePlacesApiKey`; geocoding uses `googleGeocodingApiKey`
 
 **Example**:
 ```bash
-EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=AIzaSyExamplePlacesKey123456789
+EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=your_places_key
+EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY=your_geocoding_only_key
 ```
 
 ## Environment Variables Setup
@@ -89,13 +105,7 @@ EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=your_places_api_key_here
 
 ### Option 2: Using expo-constants extra (Alternative)
 
-You can also hardcode keys directly in `app.json` under `extra` (NOT recommended for production):
-
-```json
-"extra": {
-  "googlePlacesApiKey": "your_key_here"
-}
-```
+Do **not** paste real keys into `app.json` for production; use EAS secrets / env so values stay `${EXPO_PUBLIC_...}` at rest in repo.
 
 ## Required Permissions
 
