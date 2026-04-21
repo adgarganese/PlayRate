@@ -82,6 +82,7 @@ See **Runbooks → Pushing migrations**.
   - How to install (TestFlight invite / Play Internal Testing link).
   - To use “Report a problem” (Account screen) for feedback; it attaches device/app/user context.
   - That analytics and crash reporting are on for beta (link to privacy policy if required).
+- **Post-beta:** Add a monochrome transparent Android notification icon asset and set the `icon` field on the `["expo-notifications", { ... }]` plugin entry in `app.json`.
 
 ---
 

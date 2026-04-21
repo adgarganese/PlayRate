@@ -83,7 +83,13 @@
           "project": "playrate"
         }
       ],
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "color": "#0000FF",
+          "defaultChannel": "default"
+        }
+      ],
       "expo-updates"
     ],
     "experiments": {
