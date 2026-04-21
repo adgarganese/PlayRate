@@ -11,13 +11,13 @@ export type NotificationPrefs = {
 };
 
 const DEFAULTS: NotificationPrefs = {
-  run_reminder_2h: false,
-  run_reminder_30m: false,
-  court_new_runs: false,
-  friends_checkin: false,
-  dm_notifications: false,
-  follow_notifications: false,
-  cosign_notifications: false,
+  run_reminder_2h: true,
+  run_reminder_30m: true,
+  court_new_runs: true,
+  friends_checkin: true,
+  dm_notifications: true,
+  follow_notifications: true,
+  cosign_notifications: true,
 };
 
 /**

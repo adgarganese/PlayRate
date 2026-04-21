@@ -40,21 +40,29 @@ export default function Index() {
     if (__DEV__) {
       logger.info('[index-onboarding] checking gate', { userId: user.id });
     }
-    void fetchProfileAuthGate(user.id).then((gate) => {
-      if (!cancelled) {
-        if (__DEV__) {
-          logger.info('[index-onboarding] gate result', {
-            userId: user.id,
-            needsOnboarding: gate.needsOnboarding,
-            needsTerms: gate.needsTerms,
-            redirect: gate.needsOnboarding ? '/onboarding' : gate.needsTerms ? '/terms' : '/(tabs)',
-          });
+    void fetchProfileAuthGate(user.id)
+      .then((gate) => {
+        if (!cancelled) {
+          if (__DEV__) {
+            logger.info('[index-onboarding] gate result', {
+              userId: user.id,
+              needsOnboarding: gate.needsOnboarding,
+              needsTerms: gate.needsTerms,
+              redirect: gate.needsOnboarding ? '/onboarding' : gate.needsTerms ? '/terms' : '/(tabs)',
+            });
+          }
+          setNeedsOnboarding(gate.needsOnboarding);
+          setNeedsTerms(gate.needsTerms);
+          setOnboardingResolved(true);
         }
-        setNeedsOnboarding(gate.needsOnboarding);
-        setNeedsTerms(gate.needsTerms);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        logger.error('[app:index] profile auth gate rejected unexpectedly', { err });
+        setNeedsOnboarding(true);
+        setNeedsTerms(false);
         setOnboardingResolved(true);
-      }
-    });
+      });
     return () => {
       cancelled = true;
     };
