@@ -5,6 +5,9 @@ export type NotificationPrefs = {
   run_reminder_30m: boolean;
   court_new_runs: boolean;
   friends_checkin: boolean;
+  dm_notifications: boolean;
+  follow_notifications: boolean;
+  cosign_notifications: boolean;
 };
 
 const DEFAULTS: NotificationPrefs = {
@@ -12,6 +15,9 @@ const DEFAULTS: NotificationPrefs = {
   run_reminder_30m: false,
   court_new_runs: false,
   friends_checkin: false,
+  dm_notifications: false,
+  follow_notifications: false,
+  cosign_notifications: false,
 };
 
 /**
@@ -20,7 +26,9 @@ const DEFAULTS: NotificationPrefs = {
 export async function getNotificationPrefs(userId: string): Promise<NotificationPrefs> {
   const { data, error } = await supabase
     .from('notification_prefs')
-    .select('run_reminder_2h, run_reminder_30m, court_new_runs, friends_checkin')
+    .select(
+      'run_reminder_2h, run_reminder_30m, court_new_runs, friends_checkin, dm_notifications, follow_notifications, cosign_notifications'
+    )
     .eq('user_id', userId)
     .maybeSingle();
 
@@ -30,6 +38,9 @@ export async function getNotificationPrefs(userId: string): Promise<Notification
     run_reminder_30m: data.run_reminder_30m ?? false,
     court_new_runs: data.court_new_runs ?? false,
     friends_checkin: data.friends_checkin ?? false,
+    dm_notifications: data.dm_notifications ?? false,
+    follow_notifications: data.follow_notifications ?? false,
+    cosign_notifications: data.cosign_notifications ?? false,
   };
 }
 

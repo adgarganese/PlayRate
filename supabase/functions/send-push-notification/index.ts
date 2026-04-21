@@ -27,19 +27,45 @@ function isAuthorized(req: Request): boolean {
   return false;
 }
 
-function prefsAllowPush(
-  prefs: { run_reminder_2h: boolean; run_reminder_30m: boolean; court_new_runs: boolean; friends_checkin: boolean } | null,
-  notificationType: string
-): boolean {
-  if (!prefs) return false;
-  if (notificationType === 'run_join') {
-    return prefs.court_new_runs === true;
+type NotificationPrefsRow = {
+  run_reminder_2h: boolean;
+  run_reminder_30m: boolean;
+  court_new_runs: boolean;
+  friends_checkin: boolean;
+  dm_notifications: boolean;
+  follow_notifications: boolean;
+  cosign_notifications: boolean;
+};
+
+/** Respects per-type prefs; missing prefs row or unknown type → allow (beta: avoid silent drops). */
+function prefsAllowPush(prefs: NotificationPrefsRow | null, notificationType: string): boolean {
+  if (!prefs) return true;
+  switch (notificationType) {
+    case 'new_message':
+    case 'dm':
+      return prefs.dm_notifications === true;
+    case 'new_follower':
+    case 'new_follow':
+    case 'follow':
+      return prefs.follow_notifications === true;
+    case 'cosign':
+    case 'cosign_given':
+    case 'cosign_received':
+      return prefs.cosign_notifications === true;
+    case 'run_reminder_2h':
+      return prefs.run_reminder_2h === true;
+    case 'run_reminder_30m':
+      return prefs.run_reminder_30m === true;
+    case 'court_new_run':
+    case 'court_new_runs':
+    case 'run_join':
+      return prefs.court_new_runs === true;
+    case 'friend_checkin':
+    case 'friends_checkin':
+      return prefs.friends_checkin === true;
+    default:
+      return true;
   }
-  if (notificationType === 'run_reminder_2h' || notificationType === 'run_reminder_30m') {
-    if (notificationType === 'run_reminder_2h') return prefs.run_reminder_2h === true;
-    return prefs.run_reminder_30m === true;
-  }
-  return prefs.friends_checkin === true;
 }
 
 function stringifyData(data: Record<string, unknown> | undefined): Record<string, string> {
@@ -101,7 +127,9 @@ Deno.serve(async (req) => {
 
   const { data: prefsRow } = await admin
     .from('notification_prefs')
-    .select('run_reminder_2h, run_reminder_30m, court_new_runs, friends_checkin')
+    .select(
+      'run_reminder_2h, run_reminder_30m, court_new_runs, friends_checkin, dm_notifications, follow_notifications, cosign_notifications'
+    )
     .eq('user_id', userId)
     .maybeSingle();
 
