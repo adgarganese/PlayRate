@@ -3,6 +3,8 @@ import { View, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-nat
 import { Image } from 'expo-image';
 import { useResolvedMediaUri } from '@/hooks/useResolvedMediaUri';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode as decodeBase64 } from 'base64-arraybuffer';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { useThemeColors } from '@/contexts/theme-context';
@@ -99,39 +101,97 @@ export function ProfilePicture({
     if (!user) return;
 
     setUploading(true);
+    let tripwireByteSize = 0;
+    let tripwireContentType: string | null = null;
+    let mediaUploadTripwireSent = false;
+    const emitMediaUploadTripwire = (success: boolean, error_code: string | null) => {
+      if (mediaUploadTripwireSent) return;
+      mediaUploadTripwireSent = true;
+      track('media_upload_completed', {
+        media_kind: 'avatar',
+        byte_size: tripwireByteSize,
+        content_type: tripwireContentType,
+        success,
+        error_code,
+      });
+    };
+
     try {
       const prepared = await prepareAvatarImageForUpload(uri, pickerDimensions);
-      const response = await fetch(prepared.uri);
-      const blob = await response.blob();
+      tripwireContentType = prepared.contentType;
+      if (__DEV__) {
+        logger.info('[avatar-upload] prepared', {
+          preparedUri: prepared.uri,
+          contentType: prepared.contentType,
+          pickerWidth: pickerDimensions?.width ?? null,
+          pickerHeight: pickerDimensions?.height ?? null,
+        });
+      }
+      const base64 = await FileSystem.readAsStringAsync(prepared.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (__DEV__) {
+        logger.info('[avatar-upload] base64', {
+          length: base64.length,
+        });
+      }
+      const bytes = new Uint8Array(decodeBase64(base64));
+      tripwireByteSize = bytes.byteLength;
+      if (__DEV__) {
+        logger.info('[avatar-upload] arrayBuffer', {
+          byteLength: bytes.byteLength,
+        });
+      }
       const fileName = `${user.id}/${Date.now()}.jpg`;
       const contentType = prepared.contentType;
 
       const { error: uploadError } = await supabase.storage
         .from(AVATAR_BUCKET)
-        .upload(fileName, blob, { contentType, upsert: true });
+        .upload(fileName, bytes, { contentType, upsert: true });
+      if (__DEV__) {
+        logger.info('[avatar-upload] storage upload result', {
+          bucket: AVATAR_BUCKET,
+          path: fileName,
+          error: uploadError ?? null,
+        });
+      }
 
       if (uploadError) {
         if (__DEV__) console.warn('[ProfilePicture] storage error', uploadError.message, uploadError.name, (uploadError as { code?: string }).code);
+        emitMediaUploadTripwire(false, uploadError.message ?? null);
         throw uploadError;
       }
 
       const { data: { publicUrl } } = supabase.storage
         .from(AVATAR_BUCKET)
         .getPublicUrl(fileName);
+      if (__DEV__) {
+        logger.info('[avatar-upload] public url', { publicUrl });
+      }
 
       // Update profile in database
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar_url: publicUrl })
         .eq('user_id', user.id);
+      if (__DEV__) {
+        logger.info('[avatar-upload] profiles update result', {
+          userId: user.id,
+          avatarUrl: publicUrl,
+          error: updateError ?? null,
+        });
+      }
 
       if (updateError) {
+        emitMediaUploadTripwire(false, updateError.message ?? null);
         // If avatar_url column doesn't exist, provide helpful error
         if (updateError.message?.includes('avatar_url') || updateError.message?.includes('column')) {
           throw new Error('Profile picture feature requires database update. Please contact support.');
         }
         throw updateError;
       }
+
+      emitMediaUploadTripwire(true, null);
 
       // Call onUpdate callback if provided
       if (onUpdate) {
@@ -140,6 +200,15 @@ export function ProfilePicture({
       track('profile_updated', { fields_changed: ['avatar_url'] });
     } catch (error: unknown) {
       const err = error as { message?: string; code?: string };
+      if (!mediaUploadTripwireSent) {
+        const msg =
+          err?.message != null && err.message.length > 0
+            ? err.message
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        emitMediaUploadTripwire(false, msg);
+      }
       if (__DEV__) console.warn('[ProfilePicture] upload error', err?.message, err?.code);
       logger.error('[ProfilePicture] upload failed', { err: error });
       Alert.alert('Upload Failed', UI_UPLOAD_FAILED);

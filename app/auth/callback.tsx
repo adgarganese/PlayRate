@@ -25,7 +25,7 @@ export default function AuthCallbackScreen() {
         data: { session: existing },
       } = await supabase.auth.getSession();
       if (existing && !cancelled) {
-        router.replace('/(tabs)');
+        router.replace('/');
         return;
       }
 
@@ -78,7 +78,7 @@ export default function AuthCallbackScreen() {
         return;
       }
 
-      if (!cancelled) router.replace('/(tabs)');
+      if (!cancelled) router.replace('/');
     };
 
     void run();

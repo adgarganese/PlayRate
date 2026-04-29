@@ -1,3 +1,5 @@
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode as decodeBase64 } from 'base64-arraybuffer';
 import { supabase } from './supabase';
 import { track } from './analytics';
 import { prepareHighlightImageForUpload } from './image-upload-prepare';
@@ -128,9 +130,11 @@ async function copyDraftObjectToHighlights(
   const { data, error } = await supabase.storage.from(HIGHLIGHT_DRAFTS_BUCKET).download(sourcePath);
   if (error) throw error;
   const ab = await data.arrayBuffer();
+  /** RN: pass Uint8Array to storage.upload — raw ArrayBuffer triggers Blob-in-RN errors. */
+  const bytes = new Uint8Array(ab);
   const { error: upErr } = await supabase.storage
     .from(HIGHLIGHTS_PUBLISH_BUCKET)
-    .upload(destPath, ab, { contentType, upsert: false });
+    .upload(destPath, bytes, { contentType, upsert: false });
   if (upErr) throw upErr;
 }
 
@@ -318,13 +322,25 @@ export async function uploadDraftMedia(
   }
 
   const objectPath = `${userId}/${draftId}/media.${fileExt}`;
-  let arrayBuffer: ArrayBuffer;
+  let mediaBytes: Uint8Array;
   try {
-    const response = await fetch(uploadUri);
-    if (!response.ok) {
-      throw new Error(`Failed to read media file (${response.status})`);
+    const base64 = await FileSystem.readAsStringAsync(uploadUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    if (__DEV__) {
+      logger.info('[highlight-draft-upload] main media base64', {
+        objectPath,
+        length: base64.length,
+        contentType,
+      });
     }
-    arrayBuffer = await response.arrayBuffer();
+    mediaBytes = new Uint8Array(decodeBase64(base64));
+    if (__DEV__) {
+      logger.info('[highlight-draft-upload] main media bytes', {
+        objectPath,
+        byteLength: mediaBytes.byteLength,
+      });
+    }
   } catch (e) {
     if (__DEV__) console.warn('[highlight-drafts] read file for upload', e);
     logger.warn('[highlight-drafts] read file for upload failed', { err: e });
@@ -333,7 +349,14 @@ export async function uploadDraftMedia(
 
   const { error: uploadError } = await supabase.storage
     .from(HIGHLIGHT_DRAFTS_BUCKET)
-    .upload(objectPath, arrayBuffer, { contentType, upsert: true });
+    .upload(objectPath, mediaBytes, { contentType, upsert: true });
+  if (__DEV__) {
+    logger.info('[highlight-draft-upload] main media storage result', {
+      bucket: HIGHLIGHT_DRAFTS_BUCKET,
+      path: objectPath,
+      error: uploadError ?? null,
+    });
+  }
 
   if (uploadError) {
     if (__DEV__) console.warn('[highlight-drafts] uploadDraftMedia', uploadError);
@@ -352,14 +375,32 @@ export async function uploadDraftMedia(
       const thumbLocalUri = await generateVideoThumbnail(uploadUri);
       if (thumbLocalUri) {
         const thumbPath = `${userId}/${draftId}/thumb.jpg`;
-        const thumbResponse = await fetch(thumbLocalUri);
-        if (!thumbResponse.ok) {
-          throw new Error(`Failed to read thumbnail file (${thumbResponse.status})`);
+        const thumbBase64 = await FileSystem.readAsStringAsync(thumbLocalUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        if (__DEV__) {
+          logger.info('[highlight-draft-upload] thumbnail base64', {
+            thumbPath,
+            length: thumbBase64.length,
+          });
         }
-        const thumbBuffer = await thumbResponse.arrayBuffer();
+        const thumbBuf = new Uint8Array(decodeBase64(thumbBase64));
+        if (__DEV__) {
+          logger.info('[highlight-draft-upload] thumbnail bytes', {
+            thumbPath,
+            byteLength: thumbBuf.byteLength,
+          });
+        }
         const { error: thumbErr } = await supabase.storage
           .from(HIGHLIGHT_DRAFTS_BUCKET)
-          .upload(thumbPath, thumbBuffer, { contentType: 'image/jpeg', upsert: true });
+          .upload(thumbPath, thumbBuf, { contentType: 'image/jpeg', upsert: true });
+        if (__DEV__) {
+          logger.info('[highlight-draft-upload] thumbnail storage result', {
+            bucket: HIGHLIGHT_DRAFTS_BUCKET,
+            path: thumbPath,
+            error: thumbErr ?? null,
+          });
+        }
         if (thumbErr) {
           if (__DEV__) console.warn('[highlight-drafts] upload draft video thumbnail', thumbErr);
           logger.warn('[highlight-drafts] upload draft video thumbnail failed', { err: thumbErr });

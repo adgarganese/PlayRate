@@ -12,6 +12,8 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode as decodeBase64 } from 'base64-arraybuffer';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useAuth } from '@/contexts/auth-context';
@@ -244,6 +246,7 @@ export default function HighlightCreateScreen() {
   const { colors } = useThemeColors();
   const scrollBottomPadding = useScrollContentBottomPadding();
   const hasRedirectedRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const [phase, setPhase] = useState<'pick' | 'compose'>('pick');
   const [draftBootstrap, setDraftBootstrap] = useState<'idle' | 'loading' | 'done'>('idle');
@@ -275,6 +278,17 @@ export default function HighlightCreateScreen() {
     () => (caption.trim() ? caption.trim() : null),
     [caption]
   );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const setCompressingSafe = useCallback((active: boolean) => {
+    if (mountedRef.current) setCompressing(active);
+  }, []);
 
   useEffect(() => {
     if (!authReady) return;
@@ -463,6 +477,21 @@ export default function HighlightCreateScreen() {
   const publishNewHighlight = useCallback(async () => {
     if (!user || !localUri?.trim()) return;
     setUploading(true);
+    let tripwireByteSize = 0;
+    let tripwireContentType: string | null = null;
+    let mediaUploadTripwireSent = false;
+    const emitMediaUploadTripwire = (success: boolean, error_code: string | null) => {
+      if (mediaUploadTripwireSent) return;
+      mediaUploadTripwireSent = true;
+      track('media_upload_completed', {
+        media_kind: 'highlight',
+        byte_size: tripwireByteSize,
+        content_type: tripwireContentType,
+        success,
+        error_code,
+      });
+    };
+
     try {
       let uploadUri = localUri;
       let fileExt =
@@ -473,11 +502,20 @@ export default function HighlightCreateScreen() {
 
       if (!localIsVideo) {
         const prepared = await prepareHighlightImageForUpload(localUri, localImageDims);
+        if (__DEV__) {
+          logger.info('[highlight-upload] prepared image', {
+            preparedUri: prepared.uri,
+            contentType: prepared.contentType,
+            fileExt: prepared.fileExt,
+            pickerWidth: localImageDims?.width ?? null,
+            pickerHeight: localImageDims?.height ?? null,
+          });
+        }
         uploadUri = prepared.uri;
         fileExt = prepared.fileExt;
         contentType = prepared.contentType;
       } else {
-        setCompressing(true);
+        setCompressingSafe(true);
         try {
           const prepared = await compressVideo(localUri);
           assertHighlightVideoUnderMaxBytes(prepared.fileSize);
@@ -485,7 +523,7 @@ export default function HighlightCreateScreen() {
           fileExt = 'mp4';
           contentType = 'video/mp4';
         } finally {
-          setCompressing(false);
+          setCompressingSafe(false);
         }
       }
 
@@ -498,19 +536,36 @@ export default function HighlightCreateScreen() {
         try {
           const thumbLocal = await generateVideoThumbnail(uploadUri);
           if (thumbLocal) {
-            const thumbRes = await fetch(thumbLocal);
-            if (thumbRes.ok) {
-              const thumbBuf = await thumbRes.arrayBuffer();
+            const thumbBase64 = await FileSystem.readAsStringAsync(thumbLocal, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            if (thumbBase64.length > 0) {
+              const thumbBuf = new Uint8Array(decodeBase64(thumbBase64));
+              if (__DEV__) {
+                logger.info('[highlight-upload] thumbnail bytes', {
+                  byteLength: thumbBuf.byteLength,
+                });
+              }
               const thumbName = `${user.id}/${stamp}-thumb.jpg`;
               const { error: thumbErr } = await supabase.storage
                 .from(STORAGE_BUCKET_HIGHLIGHTS)
                 .upload(thumbName, thumbBuf, { contentType: 'image/jpeg', upsert: false });
+              if (__DEV__) {
+                logger.info('[highlight-upload] thumbnail upload result', {
+                  path: thumbName,
+                  byteLength: thumbBuf.byteLength,
+                  error: thumbErr ?? null,
+                });
+              }
               if (thumbErr) {
                 logger.warn('[HighlightCreate] video thumbnail upload failed', { err: thumbErr });
               } else {
                 const { data: pt } = supabase.storage
                   .from(STORAGE_BUCKET_HIGHLIGHTS)
                   .getPublicUrl(thumbName);
+                if (__DEV__) {
+                  logger.info('[highlight-upload] thumbnail public url', { publicUrl: pt.publicUrl });
+                }
                 publishedThumbUrl = pt.publicUrl;
               }
             }
@@ -522,18 +577,47 @@ export default function HighlightCreateScreen() {
 
       const { data: { session } } = await supabase.auth.getSession();
       if (__DEV__ && !session) console.warn('[HighlightCreate] no session at upload');
-      const response = await fetch(uploadUri);
-      const arrayBuffer = await response.arrayBuffer();
+      tripwireContentType = contentType;
+      const base64 = await FileSystem.readAsStringAsync(uploadUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (__DEV__) {
+        logger.info('[highlight-upload] base64', {
+          length: base64.length,
+          uploadUri,
+          contentType,
+        });
+      }
+      const mainMediaBytes = new Uint8Array(decodeBase64(base64));
+      tripwireByteSize = mainMediaBytes.byteLength;
+      if (__DEV__) {
+        logger.info('[highlight-upload] arrayBuffer', {
+          byteLength: mainMediaBytes.byteLength,
+        });
+      }
 
       const { error: uploadError } = await supabase.storage
         .from(STORAGE_BUCKET_HIGHLIGHTS)
-        .upload(fileName, arrayBuffer, { contentType, upsert: false });
+        .upload(fileName, mainMediaBytes, { contentType, upsert: false });
+      if (__DEV__) {
+        logger.info('[highlight-upload] storage upload result', {
+          bucket: STORAGE_BUCKET_HIGHLIGHTS,
+          path: fileName,
+          error: uploadError ?? null,
+        });
+      }
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        emitMediaUploadTripwire(false, uploadError.message ?? null);
+        throw uploadError;
+      }
 
       const { data: { publicUrl } } = supabase.storage
         .from(STORAGE_BUCKET_HIGHLIGHTS)
         .getPublicUrl(fileName);
+      if (__DEV__) {
+        logger.info('[highlight-upload] public url', { publicUrl });
+      }
 
       const { error: insertError } = await supabase
         .from('highlights')
@@ -548,8 +632,19 @@ export default function HighlightCreateScreen() {
         })
         .select('id')
         .single();
+      if (__DEV__) {
+        logger.info('[highlight-upload] highlights insert result', {
+          mediaUrl: publicUrl,
+          thumbnailUrl: localIsVideo ? publishedThumbUrl : publicUrl,
+          error: insertError ?? null,
+        });
+      }
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        emitMediaUploadTripwire(false, insertError.message ?? null);
+        throw insertError;
+      }
+      emitMediaUploadTripwire(true, null);
       track('highlight_posted', {
         sport: normSport(),
         media_type: localIsVideo ? 'video' : 'image',
@@ -558,17 +653,22 @@ export default function HighlightCreateScreen() {
       hapticMedium();
       router.replace(TARGET_HIGHLIGHTS);
     } catch (err: unknown) {
+      if (!mediaUploadTripwireSent) {
+        const msg = err instanceof Error ? err.message : String(err);
+        emitMediaUploadTripwire(false, msg.length > 0 ? msg : null);
+      }
       const msg = err instanceof Error ? err.message : '';
       if (msg === HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE) {
         Alert.alert('Video too large', HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE);
       } else {
         devError('HighlightCreate', 'Upload error:', err);
+        logger.error('[HighlightCreate] publishNewHighlight failed', { err });
         Alert.alert('Upload Failed', UI_UPLOAD_FAILED);
       }
     } finally {
-      setUploading(false);
+      if (mountedRef.current) setUploading(false);
     }
-  }, [user, localUri, localIsVideo, localImageDims, normSport, normCaption, router]);
+  }, [user, localUri, localIsVideo, localImageDims, normSport, normCaption, router, setCompressingSafe]);
 
   const handleSaveOrUpdateDraft = useCallback(async () => {
     if (!user) return;
@@ -587,7 +687,7 @@ export default function HighlightCreateScreen() {
             localUri,
             mt,
             localImageDims,
-            { onCompressionState: setCompressing }
+            { onCompressionState: setCompressingSafe }
           );
           const updated = await saveDraft(user.id, {
             id: loadedDraftId,
@@ -624,7 +724,7 @@ export default function HighlightCreateScreen() {
           localUri!,
           mt,
           localImageDims,
-          { onCompressionState: setCompressing }
+          { onCompressionState: setCompressingSafe }
         );
         await saveDraft(user.id, {
           id: row.id,
@@ -640,10 +740,11 @@ export default function HighlightCreateScreen() {
         Alert.alert('Video too large', HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE);
       } else {
         devError('HighlightCreate', 'Save draft error:', err);
+        logger.error('[HighlightCreate] save draft failed', { err });
         Alert.alert('Save Failed', UI_UPLOAD_FAILED);
       }
     } finally {
-      setSavingDraft(false);
+      if (mountedRef.current) setSavingDraft(false);
     }
   }, [
     user,
@@ -655,6 +756,7 @@ export default function HighlightCreateScreen() {
     normCaption,
     remoteDraft,
     router,
+    setCompressingSafe,
   ]);
 
   const handlePublishDraft = useCallback(async () => {
@@ -674,7 +776,7 @@ export default function HighlightCreateScreen() {
           localUri,
           mt,
           localImageDims,
-          { onCompressionState: setCompressing }
+          { onCompressionState: setCompressingSafe }
         );
         await saveDraft(user.id, {
           id: loadedDraftId,
@@ -710,10 +812,11 @@ export default function HighlightCreateScreen() {
         Alert.alert('Video too large', HIGHLIGHT_VIDEO_TOO_LARGE_MESSAGE);
       } else {
         devError('HighlightCreate', 'Publish draft error:', err);
+        logger.error('[HighlightCreate] publish draft failed', { err });
         Alert.alert('Publish Failed', UI_UPLOAD_FAILED);
       }
     } finally {
-      setUploading(false);
+      if (mountedRef.current) setUploading(false);
     }
   }, [
     user,
@@ -725,6 +828,7 @@ export default function HighlightCreateScreen() {
     normCaption,
     remoteDraft,
     router,
+    setCompressingSafe,
   ]);
 
   const confirmDeleteDraft = useCallback(() => {

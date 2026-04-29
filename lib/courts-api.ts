@@ -1,8 +1,11 @@
 import { supabase } from './supabase';
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode as decodeBase64 } from 'base64-arraybuffer';
 import { escapeIlikePattern } from '@/lib/ilike-escape';
 import { getFollowedCourtIds } from './court-follows';
 import { logDevError } from './dev-log';
 import { logger } from './logger';
+import { track } from './analytics';
 import { isOffensiveContent, sanitizeText, SANITIZE_LIMITS } from './sanitize';
 import { prepareCourtPhotoImageForUpload } from './image-upload-prepare';
 import { resolveMediaUrlForPlayback } from './storage-media-url';
@@ -112,7 +115,7 @@ export async function fetchCourts(userId?: string, searchQuery?: string) {
 
   if (hasSearch) {
     const escaped = escapeIlikePattern(trimmedSearch);
-    query = query.or(`name.ilike.%${escaped}%,address.ilike.%${escaped}%`);
+    query = query.or(`name.ilike."%${escaped}%",address.ilike."%${escaped}%"`);
   }
   query = hasSearch
     ? query.order('name', { ascending: true })
@@ -602,59 +605,127 @@ export async function uploadCourtPhoto(
   imageUri: string,
   pickerDimensions?: { width?: number | null; height?: number | null }
 ): Promise<CourtPhoto> {
-  if (slot < 1 || slot > 4) {
-    throw new Error('Slot must be between 1 and 4');
-  }
-
-  const prepared = await prepareCourtPhotoImageForUpload(imageUri, pickerDimensions);
-  const response = await fetch(prepared.uri);
-  const blob = await response.blob();
-
-  const fileName = `${courtId}-${slot}-${Date.now()}.jpg`;
-  const storagePath = `${courtId}/${userId}/${fileName}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from('court-photos')
-    .upload(storagePath, blob, {
-      contentType: prepared.contentType,
-      upsert: true,
+  let tripwireByteSize = 0;
+  let tripwireContentType: string | null = null;
+  let mediaUploadTripwireSent = false;
+  const emitMediaUploadTripwire = (success: boolean, error_code: string | null) => {
+    if (mediaUploadTripwireSent) return;
+    mediaUploadTripwireSent = true;
+    track('media_upload_completed', {
+      media_kind: 'court_photo',
+      byte_size: tripwireByteSize,
+      content_type: tripwireContentType,
+      success,
+      error_code,
     });
-
-  if (uploadError) {
-    if (__DEV__) console.warn('[uploadCourtPhoto]', uploadError);
-    throw uploadError;
-  }
-
-  const { data: { publicUrl } } = supabase.storage
-    .from('court-photos')
-    .getPublicUrl(storagePath);
-
-  const { data: photoData, error: dbError } = await supabase
-    .from('court_photos')
-    .upsert(
-      {
-        court_id: courtId,
-        user_id: userId,
-        slot: slot,
-        storage_path: storagePath,
-      },
-      {
-        onConflict: 'court_id,slot',
-      }
-    )
-    .select()
-    .single();
-
-  if (dbError) {
-    await supabase.storage.from('court-photos').remove([storagePath]);
-    if (__DEV__) console.warn('[uploadCourtPhoto] save record', dbError);
-    throw dbError;
-  }
-
-  return {
-    ...photoData,
-    url: publicUrl,
   };
+
+  try {
+    if (slot < 1 || slot > 4) {
+      throw new Error('Slot must be between 1 and 4');
+    }
+
+    const prepared = await prepareCourtPhotoImageForUpload(imageUri, pickerDimensions);
+    tripwireContentType = prepared.contentType;
+    if (__DEV__) {
+      logger.info('[court-upload] prepared', {
+        preparedUri: prepared.uri,
+        contentType: prepared.contentType,
+        pickerWidth: pickerDimensions?.width ?? null,
+        pickerHeight: pickerDimensions?.height ?? null,
+        courtId,
+        userId,
+        slot,
+      });
+    }
+    const base64 = await FileSystem.readAsStringAsync(prepared.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    if (__DEV__) {
+      logger.info('[court-upload] base64', { length: base64.length });
+    }
+    const bytes = new Uint8Array(decodeBase64(base64));
+    tripwireByteSize = bytes.byteLength;
+    if (__DEV__) {
+      logger.info('[court-upload] arrayBuffer', {
+        byteLength: bytes.byteLength,
+      });
+    }
+
+    const fileName = `${courtId}-${slot}-${Date.now()}.jpg`;
+    const storagePath = `${courtId}/${userId}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('court-photos')
+      .upload(storagePath, bytes, {
+        contentType: prepared.contentType,
+        upsert: true,
+      });
+    if (__DEV__) {
+      logger.info('[court-upload] storage upload result', {
+        bucket: 'court-photos',
+        path: storagePath,
+        error: uploadError ?? null,
+      });
+    }
+
+    if (uploadError) {
+      if (__DEV__) console.warn('[uploadCourtPhoto]', uploadError);
+      emitMediaUploadTripwire(false, uploadError.message ?? null);
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('court-photos')
+      .getPublicUrl(storagePath);
+    if (__DEV__) {
+      logger.info('[court-upload] public url', { publicUrl, storagePath });
+    }
+
+    const { data: photoData, error: dbError } = await supabase
+      .from('court_photos')
+      .upsert(
+        {
+          court_id: courtId,
+          user_id: userId,
+          slot: slot,
+          storage_path: storagePath,
+        },
+        {
+          onConflict: 'court_id,slot',
+        }
+      )
+      .select()
+      .single();
+    if (__DEV__) {
+      logger.info('[court-upload] court_photos upsert result', {
+        courtId,
+        slot,
+        storagePath,
+        error: dbError ?? null,
+      });
+    }
+
+    if (dbError) {
+      emitMediaUploadTripwire(false, dbError.message ?? null);
+      await supabase.storage.from('court-photos').remove([storagePath]);
+      if (__DEV__) console.warn('[uploadCourtPhoto] save record', dbError);
+      throw dbError;
+    }
+
+    emitMediaUploadTripwire(true, null);
+
+    return {
+      ...photoData,
+      url: publicUrl,
+    };
+  } catch (e: unknown) {
+    if (!mediaUploadTripwireSent) {
+      const msg = e instanceof Error ? e.message : String(e);
+      emitMediaUploadTripwire(false, msg.length > 0 ? msg : null);
+    }
+    throw e;
+  }
 }
 
 export async function deleteCourtPhoto(courtId: string, slot: number, userId: string): Promise<void> {
