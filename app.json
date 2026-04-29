@@ -2,8 +2,8 @@
   "expo": {
     "name": "PlayRate",
     "slug": "playrate",
-    "version": "1.1.1",
-    "runtimeVersion": "1.1.1",
+    "version": "1.1.2",
+    "runtimeVersion": "1.1.2",
     "updates": {
       "url": "https://u.expo.dev/ce8747bd-f927-488b-b71b-9db2f74f1508",
       "checkAutomatically": "ON_LOAD",
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.playrate.app",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#0000FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

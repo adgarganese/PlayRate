@@ -21,7 +21,7 @@ export function initSentry(): void {
   const appVersion =
     Application.nativeApplicationVersion ??
     Constants.expoConfig?.version ??
-    '1.1.1';
+    '1.1.2';
   Sentry.init({
     dsn: DSN,
     enabled: true,

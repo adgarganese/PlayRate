@@ -30,7 +30,7 @@ export function getFeedbackContext(): { app_version: string; build_number: strin
   const app_version =
     Application.nativeApplicationVersion ??
     Constants.expoConfig?.version ??
-    '1.1.1';
+    '1.1.2';
   const build_number =
     Application.nativeBuildVersion ??
     Constants.expoConfig?.ios?.buildNumber ??
@@ -63,7 +63,7 @@ export function getReportProblemBody(options: {
   route?: string;
 }): string {
   const { userId, route } = options;
-  const appVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '1.1.1';
+  const appVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '1.1.2';
   const deviceName = Device.deviceName ?? Device.modelName ?? 'Unknown device';
   const osVersion = Device.osVersion ?? Platform.Version ?? '';
 
