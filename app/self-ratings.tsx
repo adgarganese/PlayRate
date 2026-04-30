@@ -38,9 +38,6 @@ export default function SelfRatingsScreen() {
     draftRatings,
     loading: loadingSport,
     saving,
-    ratingButtonSize,
-    ratingButtonFontSize,
-    ratingButtonGap,
     attributeEditabilityMap,
     attributeUnlockDateMap,
     handleRating,
@@ -150,9 +147,6 @@ export default function SelfRatingsScreen() {
                     draftRatings={draftRatings}
                     attributeEditabilityMap={attributeEditabilityMap}
                     attributeUnlockDateMap={attributeUnlockDateMap}
-                    ratingButtonSize={ratingButtonSize}
-                    ratingButtonFontSize={ratingButtonFontSize}
-                    ratingButtonGap={ratingButtonGap}
                     saving={saving}
                     onRatingPress={(id, v) => void handleRating(id, v)}
                     hasUnsavedChanges={hasUnsavedChanges}

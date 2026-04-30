@@ -41,9 +41,6 @@ export default function OnboardingRatingsScreen() {
     draftRatings,
     loading: loadingSport,
     saving,
-    ratingButtonSize,
-    ratingButtonFontSize,
-    ratingButtonGap,
     attributeEditabilityMap,
     attributeUnlockDateMap,
     handleRating,
@@ -151,9 +148,6 @@ export default function OnboardingRatingsScreen() {
                 draftRatings={draftRatings}
                 attributeEditabilityMap={attributeEditabilityMap}
                 attributeUnlockDateMap={attributeUnlockDateMap}
-                ratingButtonSize={ratingButtonSize}
-                ratingButtonFontSize={ratingButtonFontSize}
-                ratingButtonGap={ratingButtonGap}
                 saving={saving}
                 onRatingPress={(id, v) => void handleRating(id, v)}
                 hasUnsavedChanges={hasUnsavedChanges}

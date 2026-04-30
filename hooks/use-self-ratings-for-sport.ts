@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, useWindowDimensions } from 'react-native';
+import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import {
   fetchOrderedAttributesForSport,
@@ -24,33 +24,12 @@ export function useSelfRatingsForSport(
   options?: UseSelfRatingsForSportOptions
 ) {
   const onboardingMode = options?.onboardingMode ?? false;
-  const { width: screenWidth } = useWindowDimensions();
 
   const [attributes, setAttributes] = useState<SelfRatingsAttribute[]>([]);
   const [ratings, setRatings] = useState<Record<string, SelfRatingsRow>>({});
   const [draftRatings, setDraftRatings] = useState<Record<string, number | null>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const ratingButtonSize = useMemo(() => {
-    const NUM_BUTTONS = 10;
-    const NUM_GAPS = 9;
-    const TOTAL_PADDING = 64;
-    const MIN_BUTTON_SIZE = 28;
-    const MAX_BUTTON_SIZE = 44;
-    const availableWidth = screenWidth - TOTAL_PADDING;
-    const gapSize = screenWidth < 400 ? 4 : screenWidth < 500 ? 6 : 8;
-    const calculatedSize = Math.floor((availableWidth - NUM_GAPS * gapSize) / NUM_BUTTONS);
-    return Math.max(MIN_BUTTON_SIZE, Math.min(MAX_BUTTON_SIZE, calculatedSize));
-  }, [screenWidth]);
-
-  const ratingButtonFontSize = useMemo(() => {
-    if (ratingButtonSize <= 30) return 12;
-    if (ratingButtonSize <= 36) return 14;
-    return 16;
-  }, [ratingButtonSize]);
-
-  const ratingButtonGap = useMemo(() => (screenWidth < 400 ? 4 : screenWidth < 500 ? 6 : 8), [screenWidth]);
 
   useEffect(() => {
     if (!userId || !selectedSport) {
@@ -269,9 +248,6 @@ export function useSelfRatingsForSport(
     draftRatings,
     loading,
     saving,
-    ratingButtonSize,
-    ratingButtonFontSize,
-    ratingButtonGap,
     attributeEditabilityMap,
     attributeUnlockDateMap,
     handleRating,

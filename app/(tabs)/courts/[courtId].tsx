@@ -31,6 +31,7 @@ import { createScheduledRun } from '@/lib/runs';
 import { Screen } from '@/components/ui/Screen';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
 import { DismissKeyboardView } from '@/components/ui/DismissKeyboardView';
+import { RatingSlider } from '@/components/ui/RatingSlider';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
 import { GradientCard } from '@/components/ui/GradientCard';
@@ -117,7 +118,7 @@ export default function CourtDetailScreen() {
   const [suggestBody, setSuggestBody] = useState('');
   const [submittingSuggest, setSubmittingSuggest] = useState(false);
 
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight } = useWindowDimensions();
 
   useEffect(() => {
     let cancelled = false;
@@ -161,10 +162,6 @@ export default function CourtDetailScreen() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courtId, user]);
-
-  // Calculate responsive rating button size (similar to self-ratings screen)
-  const ratingButtonSize = Math.max(28, Math.min(44, Math.floor((screenWidth - 64 - (9 * 8)) / 10)));
-  const ratingButtonFontSize = ratingButtonSize <= 30 ? 12 : ratingButtonSize <= 36 ? 14 : 16;
 
   const loadCourt = async () => {
     if (!courtId) return;
@@ -1244,40 +1241,11 @@ export default function CourtDetailScreen() {
                     <AppText variant="body" color="text" style={styles.ratingPickerLabel}>
                       {isEditingRating ? 'Change your rating:' : 'Rate this court:'}
                     </AppText>
-                    <View style={[styles.ratingButtons, { gap: 8 }]}>
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((value) => {
-                        const isSelected = selectedRating === value;
-                        return (
-                          <TouchableOpacity
-                            key={value}
-                            activeOpacity={0.7}
-                            style={[
-                              styles.ratingButton,
-                              {
-                                width: ratingButtonSize,
-                                height: ratingButtonSize,
-                                backgroundColor: isSelected ? colors.primary : 'transparent',
-                                borderColor: isSelected ? colors.primary : colors.border,
-                              },
-                            ]}
-                            onPress={() => setSelectedRating(value)}
-                            disabled={submittingRating}
-                          >
-                            <Text
-                              style={[
-                                styles.ratingButtonText,
-                                {
-                                  fontSize: ratingButtonFontSize,
-                                  color: isSelected ? colors.textOnPrimary : colors.text,
-                                },
-                              ]}
-                            >
-                              {value}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
+                    <RatingSlider
+                      value={selectedRating}
+                      onValueChange={setSelectedRating}
+                      disabled={submittingRating}
+                    />
                     {selectedRating !== null && selectedRating !== ratingInfo?.user_rating && (
                       <View style={styles.ratingActionButtons}>
                         <Button
@@ -1988,24 +1956,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
     textAlign: 'center',
   },
-  ratingButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    marginBottom: Spacing.sm,
-  },
   ratingLoadingText: {
     textAlign: 'center',
     paddingVertical: Spacing.sm,
-  },
-  ratingButton: {
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ratingButtonText: {
-    ...Typography.bodyBold,
   },
   ratingSectionHeader: {
     flexDirection: 'row',

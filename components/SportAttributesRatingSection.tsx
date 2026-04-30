@@ -1,7 +1,8 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { RatingSlider } from '@/components/ui/RatingSlider';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import type { SelfRatingsAttribute, SelfRatingsRow } from '@/lib/self-ratings-queries';
@@ -13,9 +14,6 @@ type SportAttributesRatingSectionProps = {
   draftRatings: Record<string, number | null>;
   attributeEditabilityMap: Record<string, boolean>;
   attributeUnlockDateMap: Record<string, Date | null>;
-  ratingButtonSize: number;
-  ratingButtonFontSize: number;
-  ratingButtonGap: number;
   saving: boolean;
   onRatingPress: (attributeId: string, value: number) => void;
   hasUnsavedChanges: () => boolean;
@@ -32,9 +30,6 @@ export function SportAttributesRatingSection({
   draftRatings,
   attributeEditabilityMap,
   attributeUnlockDateMap,
-  ratingButtonSize,
-  ratingButtonFontSize,
-  ratingButtonGap,
   saving,
   onRatingPress,
   hasUnsavedChanges,
@@ -65,6 +60,7 @@ export function SportAttributesRatingSection({
           const draftRating = draftRatings[attribute.id];
           const isEditable = attributeEditabilityMap[attribute.id] ?? true;
           const unlockDate = attributeUnlockDateMap[attribute.id] ?? null;
+          const sliderValue = draftRating ?? existingRating?.rating ?? null;
 
           return (
             <Card
@@ -98,44 +94,11 @@ export function SportAttributesRatingSection({
                 </Text>
               ) : null}
 
-              <View style={[styles.ratingButtons, { gap: ratingButtonGap }]}>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((value) => {
-                  const selectedValue = draftRating ?? existingRating?.rating ?? null;
-                  const isSelected = selectedValue === value;
-
-                  return (
-                    <TouchableOpacity
-                      key={value}
-                      activeOpacity={0.7}
-                      style={[
-                        styles.ratingButton,
-                        {
-                          width: ratingButtonSize,
-                          height: ratingButtonSize,
-                          backgroundColor: isSelected ? colors.primary : 'transparent',
-                          borderColor: isSelected ? colors.primary : colors.border,
-                        },
-                        !isEditable && styles.ratingButtonDisabled,
-                      ]}
-                      onPress={() => onRatingPress(attribute.id, value)}
-                      disabled={saving || !isEditable}
-                    >
-                      <Text
-                        style={[
-                          styles.ratingButtonText,
-                          {
-                            fontSize: ratingButtonFontSize,
-                            color: isSelected ? colors.textOnPrimary : colors.text,
-                          },
-                          !isEditable && styles.ratingButtonTextDisabled,
-                        ]}
-                      >
-                        {value}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              <RatingSlider
+                value={sliderValue}
+                onValueChange={(v) => onRatingPress(attribute.id, v)}
+                disabled={saving || !isEditable}
+              />
             </Card>
           );
         })}
@@ -200,28 +163,6 @@ const styles = StyleSheet.create({
   updateInfo: {
     ...Typography.mutedSmall,
     marginBottom: Spacing.sm,
-  },
-  ratingButtons: {
-    flexDirection: 'row',
-    flexWrap: 'nowrap',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  ratingButton: {
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 28,
-  },
-  ratingButtonDisabled: {
-    opacity: 0.4,
-  },
-  ratingButtonText: {
-    ...Typography.bodyBold,
-  },
-  ratingButtonTextDisabled: {
-    opacity: 1,
   },
   saveAllButton: {
     marginTop: Spacing.xl,
