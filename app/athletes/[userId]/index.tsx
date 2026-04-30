@@ -771,24 +771,6 @@ const modalStyles = StyleSheet.create({
     marginBottom: Spacing.lg,
     fontStyle: 'italic',
   },
-  label: {
-    ...Typography.muted,
-    marginBottom: Spacing.sm,
-  },
-  input: {
-    ...Typography.body,
-    borderWidth: 1,
-    borderRadius: Radius.sm,
-    padding: Spacing.md,
-    minHeight: 100,
-    textAlignVertical: 'top',
-    marginBottom: Spacing.xs,
-  },
-  charCount: {
-    ...Typography.mutedSmall,
-    textAlign: 'right',
-    marginBottom: Spacing.md,
-  },
   errorText: {
     ...Typography.muted,
     marginBottom: Spacing.md,
