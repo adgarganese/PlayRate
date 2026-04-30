@@ -194,7 +194,7 @@ export default function SignUpScreen() {
         [
           {
             text: 'OK',
-            onPress: () => router.replace('/(tabs)'),
+            onPress: () => router.replace('/'),
           },
         ]
       );

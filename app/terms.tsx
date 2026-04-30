@@ -34,7 +34,7 @@ export default function TermsScreen() {
       return;
     }
     track('terms_accepted', { source: 'beta_gate' });
-    router.replace('/(tabs)' as any);
+    router.replace('/');
   };
 
   return (

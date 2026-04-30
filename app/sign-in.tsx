@@ -72,7 +72,7 @@ export default function SignInScreen() {
         Alert.alert('Sign In', friendlyMessage);
       } else {
         track('sign_in_completed', { method: 'email' });
-        router.replace('/(tabs)');
+        router.replace('/');
       }
     } catch (err) {
       setLoading(false);
@@ -143,7 +143,7 @@ export default function SignInScreen() {
       setOtpError(friendlyMessage);
     } else {
       track('sign_in_completed', { method: 'phone' });
-      router.replace('/(tabs)');
+      router.replace('/');
     }
   };
 
