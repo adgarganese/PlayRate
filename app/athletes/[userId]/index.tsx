@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Modal, TouchableOpacity, type ViewStyle } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Modal, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
@@ -617,14 +617,14 @@ function CosignModal({
             <Text style={[modalStyles.errorText, { color: colors.text }]}>{error}</Text>
           )}
 
-          <View style={[modalStyles.buttons, { gap: Spacing.sm }]}>
+          <View style={modalStyles.buttons}>
             <ProfileNavPill
               icon="xmark.circle.fill"
               label="Cancel"
               onPress={onCancel}
               disabled={isSubmitting}
               showChevron={false}
-              style={modalStyles.halfButton}
+              style={modalStyles.modalCancelPill}
             />
             <ProfileNavPill
               icon="medal.fill"
@@ -634,8 +634,8 @@ function CosignModal({
               disabled={isSubmitting}
               showChevron={false}
               active
-              compact
-              style={StyleSheet.flatten([modalStyles.halfButton, { minHeight: 24, flex: 0.5 }]) as ViewStyle}
+              iconSize={18}
+              style={modalStyles.modalCosignPill}
             />
           </View>
         </Card>
@@ -796,9 +796,17 @@ const modalStyles = StyleSheet.create({
   buttons: {
     flexDirection: 'row',
     marginTop: Spacing.md,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  halfButton: {
-    flex: 1,
-    minHeight: 44,
+  modalCancelPill: {
+    flex: 0,
+    alignSelf: 'flex-start',
+  },
+  modalCosignPill: {
+    flex: 0,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    minHeight: 48,
   },
 });

@@ -27,6 +27,8 @@ type CosignButtonProps = {
   onPress: () => void;
   /** Optional style overrides */
   style?: ViewStyle;
+  /** Larger pill + label for primary emphasis (e.g. skill card) */
+  prominent?: boolean;
 };
 
 export function CosignButton({
@@ -37,6 +39,7 @@ export function CosignButton({
   isPending = false,
   onPress,
   style,
+  prominent = false,
 }: CosignButtonProps) {
   const { isDark } = useThemeColors();
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -106,6 +109,7 @@ export function CosignButton({
 
   const label = cosigned ? 'Cosigned' : 'Cosign';
   const icon = cosigned ? 'checkmark.circle.fill' : 'medal.fill';
+  const iconSize = prominent ? 14 : 11;
 
   return (
     <Animated.View style={[{ transform: [{ scale: scaleAnim }], opacity: pendingOpacity }, style]}>
@@ -117,6 +121,7 @@ export function CosignButton({
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         style={[
           styles.pill,
+          prominent && styles.pillProminent,
           {
             borderColor,
             backgroundColor: bgColor,
@@ -128,12 +133,12 @@ export function CosignButton({
         {loading ? (
           <ActivityIndicator size="small" color={iconColor} />
         ) : (
-          <IconSymbol name={icon} size={11} color={iconColor} />
+          <IconSymbol name={icon} size={iconSize} color={iconColor} />
         )}
 
         {/* Label */}
         <Text
-          style={[styles.label, { color: textColor }]}
+          style={[styles.label, prominent && styles.labelProminent, { color: textColor }]}
           numberOfLines={1}
         >
           {label}
@@ -170,6 +175,12 @@ const styles = StyleSheet.create({
     gap: 5,
     minHeight: 24,
   },
+  pillProminent: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 6,
+    minHeight: 32,
+  },
   pillDisabled: {
     opacity: 0.5,
   },
@@ -178,6 +189,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 14,
     fontWeight: '600',
+  },
+  labelProminent: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   countBadge: {
     minWidth: 14,
