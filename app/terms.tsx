@@ -66,6 +66,23 @@ export default function TermsScreen() {
         </AppText>
 
         <AppText variant="h3" color="text" style={styles.heading}>
+          Confidentiality and intellectual property
+        </AppText>
+        <AppText variant="body" color="textMuted" style={styles.paragraph}>
+          PlayRate is provided to you as a beta tester for testing and feedback purposes only. The PlayRate name,
+          design, features, and underlying concepts are the proprietary intellectual property of the founder.
+        </AppText>
+        <AppText variant="body" color="textMuted" style={styles.paragraph}>
+          By accepting these terms, you agree not to copy, reproduce, reverse engineer, or use any part of the PlayRate
+          product, design, or concept to build a competing product. PlayRate™ is a trademark of the founder, and a
+          federal trademark application is pending.
+        </AppText>
+        <AppText variant="body" color="textMuted" style={styles.paragraph}>
+          Confidential information you encounter during the beta — including unreleased features, internal designs, and
+          beta-tester-only content — must not be shared publicly without written consent.
+        </AppText>
+
+        <AppText variant="h3" color="text" style={styles.heading}>
           Privacy (summary)
         </AppText>
         <AppText variant="body" color="textMuted" style={styles.paragraph}>
