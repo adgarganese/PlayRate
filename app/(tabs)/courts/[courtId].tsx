@@ -30,6 +30,7 @@ import { fetchIsStaff, isCourtCreatedByUser } from '@/lib/court-permissions';
 import { createScheduledRun } from '@/lib/runs';
 import { Screen } from '@/components/ui/Screen';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
+import { DismissKeyboardView } from '@/components/ui/DismissKeyboardView';
 import { Header } from '@/components/ui/Header';
 import { Card } from '@/components/Card';
 import { GradientCard } from '@/components/ui/GradientCard';
@@ -1318,6 +1319,7 @@ export default function CourtDetailScreen() {
       >
         <View style={styles.modalOverlay}>
           <Card style={styles.modalContent}>
+            <DismissKeyboardView expand={false}>
             <View style={styles.modalHeader}>
               <AppText variant="h2" color="text">Suggest an edit</AppText>
               <TouchableOpacity
@@ -1355,6 +1357,7 @@ export default function CourtDetailScreen() {
               disabled={submittingSuggest}
               style={styles.suggestModalSubmit}
             />
+            </DismissKeyboardView>
           </Card>
         </View>
       </Modal>

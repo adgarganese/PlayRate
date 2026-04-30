@@ -49,6 +49,7 @@ import { useTabBarSafeBottom } from '@/hooks/use-tab-bar-safe-bottom';
 import { useResolvedMediaUri } from '@/hooks/useResolvedMediaUri';
 import { AnimatedListItem } from '@/components/ui/AnimatedListItem';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { DismissKeyboardView } from '@/components/ui/DismissKeyboardView';
 import { SectionAccent } from '@/components/ui/SectionAccent';
 import { DraftsList } from '@/components/DraftsList';
 import { useDrafts } from '@/hooks/useDrafts';
@@ -714,6 +715,7 @@ export default function HighlightsFeedScreen() {
 
   return (
     <Screen>
+      <DismissKeyboardView>
       <Header title="Highlights" showBack={false} rightElement={headerSearchControl} />
       {searchUiOpen ? (
         <View style={[styles.feedControlsWrap, { backgroundColor: colors.bg }]}>
@@ -856,6 +858,7 @@ export default function HighlightsFeedScreen() {
         </TouchableOpacity>
         </>
       )}
+      </DismissKeyboardView>
     </Screen>
   );
 }

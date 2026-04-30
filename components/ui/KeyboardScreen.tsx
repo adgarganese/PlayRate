@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing } from '@/constants/theme';
 import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
+import { DismissKeyboardView } from '@/components/ui/DismissKeyboardView';
 
 type KeyboardScreenProps = {
   children: React.ReactNode;
@@ -55,7 +56,7 @@ export const KeyboardScreen = React.forwardRef<ScrollViewType, KeyboardScreenPro
       showsVerticalScrollIndicator={false}
       {...(Platform.OS === 'ios' && { contentInsetAdjustmentBehavior: 'never' as const })}
     >
-      {children}
+      <DismissKeyboardView>{children}</DismissKeyboardView>
     </ScrollView>
   );
 

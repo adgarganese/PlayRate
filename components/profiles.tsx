@@ -23,6 +23,7 @@ import { EmptyAthletesIllustration } from '@/components/illustrations';
 import { logger } from '@/lib/logger';
 import { escapeIlikePattern } from '@/lib/ilike-escape';
 import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
+import { DismissKeyboardView } from '@/components/ui/DismissKeyboardView';
 
 type Profile = {
   user_id: string;
@@ -324,6 +325,7 @@ export default function Profiles() {
 
   return (
     <Screen>
+      <DismissKeyboardView>
       <Header title="Athletes" showBack={false} />
       <View style={styles.searchContainer}>
         <RNTextInput
@@ -393,6 +395,7 @@ export default function Profiles() {
           }
         />
       )}
+      </DismissKeyboardView>
     </Screen>
   );
 }

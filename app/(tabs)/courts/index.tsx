@@ -28,6 +28,7 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { trackOnce } from '@/lib/analytics';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { AnimatedListItem } from '@/components/ui/AnimatedListItem';
+import { DismissKeyboardView } from '@/components/ui/DismissKeyboardView';
 import { hapticSuccess } from '@/lib/haptics';
 import { logger } from '@/lib/logger';
 import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
@@ -172,6 +173,7 @@ export default function CourtsScreen() {
 
   return (
     <Screen>
+      <DismissKeyboardView>
       <View style={[styles.pageBackground, { backgroundColor: colors.bg }]}>
         <Header
           title="Courts"
@@ -271,6 +273,7 @@ export default function CourtsScreen() {
           />
         ) : null}
       </View>
+      </DismissKeyboardView>
     </Screen>
   );
 }
