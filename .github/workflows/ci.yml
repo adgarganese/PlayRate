@@ -46,4 +46,4 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Queue EAS preview build
-        run: eas build --platform all --profile preview --non-interactive --no-wait
+        run: eas build --platform ios --profile preview --non-interactive --no-wait
