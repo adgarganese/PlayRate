@@ -61,5 +61,4 @@ credentials.json
 app-example
 
 # Native folders are regenerated on every build via expo prebuild
-/ios
 /android
