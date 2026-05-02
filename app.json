@@ -5,8 +5,9 @@
     "version": "1.1.2",
     "runtimeVersion": "1.1.2",
     "updates": {
+      "enabled": false,
       "url": "https://u.expo.dev/ce8747bd-f927-488b-b71b-9db2f74f1508",
-      "checkAutomatically": "ON_LOAD",
+      "checkAutomatically": "ON_ERROR_RECOVERY",
       "fallbackToCacheTimeout": 0
     },
     "orientation": "portrait",
@@ -16,7 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.playrate.app",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow PlayRate to use your camera to film or photograph highlights.",
         "NSLocationWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
@@ -29,7 +30,7 @@
     },
     "android": {
       "package": "com.playrate.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#0000FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -77,14 +78,6 @@
         }
       ],
       "expo-localization",
-      [
-        "@sentry/react-native/expo",
-        {
-          "url": "https://sentry.io/",
-          "organization": "playrate",
-          "project": "playrate"
-        }
-      ],
       [
         "expo-notifications",
         {
