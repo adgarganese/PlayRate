@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode as decodeBase64 } from 'base64-arraybuffer';
@@ -46,11 +45,6 @@ import {
 } from '@/lib/highlight-drafts';
 import { hapticMedium } from '@/lib/haptics';
 import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
-
-/** Keep in sync with app/(tabs)/_layout.tsx tab bar minHeight pieces (absolute bar overlays scroll). */
-const TAB_BAR_ICON_ROW = 58;
-const TAB_BAR_PADDING_TOP = 10;
-const TAB_BAR_PADDING_BOTTOM = 10;
 
 type IconSymbolName = React.ComponentProps<typeof IconSymbol>['name'];
 
@@ -250,14 +244,7 @@ export default function HighlightCreateScreen() {
 
   const { user, loading } = useAuth();
   const { colors } = useThemeColors();
-  const insets = useSafeAreaInsets();
-  const hookScrollBottomPad = useScrollContentBottomPadding();
-  const minClearAbsoluteTabBar =
-    TAB_BAR_ICON_ROW +
-    TAB_BAR_PADDING_TOP +
-    Math.max(insets.bottom, TAB_BAR_PADDING_BOTTOM) +
-    Spacing.lg;
-  const scrollBottomPadding = Math.max(hookScrollBottomPad, minClearAbsoluteTabBar);
+  const scrollBottomPadding = useScrollContentBottomPadding();
   const hasRedirectedRef = useRef(false);
   const mountedRef = useRef(true);
 

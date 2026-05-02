@@ -16,20 +16,18 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.playrate.app",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow PlayRate to use your camera to film or photograph highlights.",
         "NSLocationWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
-        "NSLocationAlwaysUsageDescription": "Allow PlayRate to use your location to find courts and runs near you.",
         "NSPhotoLibraryUsageDescription": "Allow PlayRate to access your photos to choose a profile picture or share highlights.",
-        "NSMicrophoneUsageDescription": "Allow PlayRate to record audio when filming highlights.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.playrate.app",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "backgroundColor": "#0000FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

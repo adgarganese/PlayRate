@@ -6,12 +6,6 @@ import { Spacing } from '@/constants/theme';
 /** Space below the last scroll row so content clears the tab bar / home indicator comfortably */
 const SCROLL_END_GUTTER = 10;
 
-/**
- * Extra inset below measured tab bar height so the last row isn’t flush against the bar.
- * (Tab bar is `position: 'absolute'` in app/(tabs)/_layout — padding must fully clear its visual stack.)
- */
-const SCROLL_TAB_CONTENT_GUTTER = Spacing.lg;
-
 /** Extra `paddingBottom` for lists with a floating FAB above the tab bar (~diameter + margin) */
 export const SCROLL_EXTRA_FOR_FLOATING_FAB = 56 + Spacing.lg;
 
@@ -39,7 +33,7 @@ export function useScrollContentBottomPadding(mode: ScrollContentBottomMode = 'd
   }
 
   if (tabH > 0) {
-    return Math.max(tabH, insets.bottom) + SCROLL_TAB_CONTENT_GUTTER + SCROLL_END_GUTTER;
+    return tabH + SCROLL_END_GUTTER;
   }
 
   return Math.max(insets.bottom, Spacing.md) + Spacing.lg + SCROLL_END_GUTTER;

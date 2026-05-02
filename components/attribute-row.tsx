@@ -51,15 +51,16 @@ export default function AttributeRow({
       {/* Cosign button - show if user can cosign OR has already cosigned */}
       {(canCosign || hasCosigned || cosignCount > 0) && (
         <View style={styles.cosignRow}>
-          <CosignButton
-            prominent
-            count={cosignCount}
-            cosigned={hasCosigned && isCosignPending}
-            isPending={isCosignPending}
-            loading={cosignLoading}
-            disabled={!canCosign || cosignLoading}
-            onPress={onCosignPress || (() => {})}
-          />
+          <View style={styles.cosignButtonWrap}>
+            <CosignButton
+              count={cosignCount}
+              cosigned={hasCosigned && isCosignPending}
+              isPending={isCosignPending}
+              loading={cosignLoading}
+              disabled={!canCosign || cosignLoading}
+              onPress={onCosignPress || (() => {})}
+            />
+          </View>
         </View>
       )}
     </View>
@@ -107,8 +108,9 @@ const styles = StyleSheet.create({
   },
   cosignRow: {
     marginTop: Spacing.sm,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
+  },
+  cosignButtonWrap: {
+    width: '66%',
+    alignSelf: 'center',
   },
 });

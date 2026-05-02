@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Modal, TouchableOpacity, type ViewStyle } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
@@ -617,14 +617,14 @@ function CosignModal({
             <Text style={[modalStyles.errorText, { color: colors.text }]}>{error}</Text>
           )}
 
-          <View style={modalStyles.buttons}>
+          <View style={[modalStyles.buttons, { gap: Spacing.sm }]}>
             <ProfileNavPill
               icon="xmark.circle.fill"
               label="Cancel"
               onPress={onCancel}
               disabled={isSubmitting}
               showChevron={false}
-              style={modalStyles.modalCancelPill}
+              style={modalStyles.halfButton}
             />
             <ProfileNavPill
               icon="medal.fill"
@@ -634,8 +634,8 @@ function CosignModal({
               disabled={isSubmitting}
               showChevron={false}
               active
-              iconSize={18}
-              style={modalStyles.modalCosignPill}
+              compact
+              style={StyleSheet.flatten([modalStyles.halfButton, { minHeight: 24, flex: 0.5 }]) as ViewStyle}
             />
           </View>
         </Card>
@@ -771,6 +771,24 @@ const modalStyles = StyleSheet.create({
     marginBottom: Spacing.lg,
     fontStyle: 'italic',
   },
+  label: {
+    ...Typography.muted,
+    marginBottom: Spacing.sm,
+  },
+  input: {
+    ...Typography.body,
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: Spacing.xs,
+  },
+  charCount: {
+    ...Typography.mutedSmall,
+    textAlign: 'right',
+    marginBottom: Spacing.md,
+  },
   errorText: {
     ...Typography.muted,
     marginBottom: Spacing.md,
@@ -778,17 +796,9 @@ const modalStyles = StyleSheet.create({
   buttons: {
     flexDirection: 'row',
     marginTop: Spacing.md,
-    justifyContent: 'space-between',
-    alignItems: 'center',
   },
-  modalCancelPill: {
-    flex: 0,
-    alignSelf: 'flex-start',
-  },
-  modalCosignPill: {
-    flex: 0,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    minHeight: 48,
+  halfButton: {
+    flex: 1,
+    minHeight: 44,
   },
 });

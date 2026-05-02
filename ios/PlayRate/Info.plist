@@ -31,15 +31,9 @@
           <string>com.playrate.app</string>
         </array>
       </dict>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>exp+playrate</string>
-        </array>
-      </dict>
     </array>
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>7</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>LSMinimumSystemVersion</key>
@@ -55,16 +49,14 @@
     </dict>
     <key>NSCameraUsageDescription</key>
     <string>Allow PlayRate to use your camera to film or photograph highlights.</string>
-    <key>NSFaceIDUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Allow PlayRate to use your location to find courts near you.</string>
     <key>NSLocationAlwaysUsageDescription</key>
-    <string>Allow PlayRate to use your location to find courts and runs near you.</string>
+    <string>Allow $(PRODUCT_NAME) to access your location</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Allow PlayRate to use your location to find courts near you.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow PlayRate to record audio when filming highlights.</string>
+    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow PlayRate to access your photos to choose a profile picture or share highlights.</string>
     <key>NSUserActivityTypes</key>

@@ -60,5 +60,5 @@ credentials.json
 # --- Project-specific ---
 app-example
 
-# Native folders are regenerated on every build via expo prebuild
+# generated native folders (ios committed so EAS skips prebuild; android still generated on EAS)
 /android
