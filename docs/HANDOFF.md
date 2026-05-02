@@ -148,3 +148,58 @@ This section exists so tomorrow's session does not repeat any of these.
 5. ✅ `ios/PlayRate/Info.plist` CFBundleVersion = 7
 6. ✅ `ios/PlayRate.xcodeproj/project.pbxproj` CURRENT_PROJECT_VERSION = 7 in target Debug + Release
 7. ✅ `prebuild-ios.yml` workflow disabled in GitHub UI
+
+## 9. Beta-quality scope and launch decision tree (added 2026-05-02 EOD)
+
+### What "beta-ready" actually means for this project
+
+The user defined beta-ready as build 3 plus three remaining UI fixes:
+1. Slider works on user + court rating screens (RNCSlider unimplemented error)
+2. Cosign button larger + right-aligned on cosign skill card
+3. Create-highlight page scrolls to bottom (content clears floating tab bar)
+
+**All three of these are already implemented.** They live in commits on the recovery branch `backup-before-reset-2026-05-02`:
+- Cosign UI: `7b62f00` (feat(ui): larger and right-aligned cosign button on athlete profile cards)
+- Scroll padding: `a10f29f` (fix(ui): create-highlight scroll padding clears the floating tab bar)
+- Slider: native module + JS wiring; native side validated by green build 3 era; not yet tested on a working IPA because every build since has crashed on iOS 26.4.2
+
+The code is at beta quality. The blocker is purely the iOS 26.4.2 PAC issue (section 2).
+
+### Launch path decision tree
+
+The user's hard constraints (confirmed 2026-05-02 EOD):
+- Test device: iPhone 14 Pro on iOS 26.4.2 (cannot run any current build)
+- No alternate iPhone available
+- No other iOS device (no spare iPhone, no iPad)
+- No Mac available locally
+
+Given those constraints, tomorrow has four real paths:
+
+**Path A — Wait for upstream fix.** Hermes/RN/Expo patches issue #44356. Realistic timeline: days to weeks. Pure waiting; zero work; zero credits. The upstream fix arrives, then bump SDK, bump build, build, install, ship.
+
+**Path B — Ship to TestFlight knowing builds crash on iOS 26.4+.** TestFlight accepts binaries even if they crash on launch. Submission requires EAS production profile (different cert from preview Ad Hoc) + App Store Connect app record. Cost: 1 production build credit + setup time. Outcome: app exists on TestFlight; testers on iOS 26.3 or earlier can install and run; testers on iOS 26.4+ cannot. Requires the user's tester pool to skew older iOS. When upstream fix lands, push update to existing testers.
+
+**Path C — Try Expo SDK Canary.** Issue #44680 mentions canary builds being tested for the PAC fix. Upgrade SDK to canary, rebuild. Risk: canary has its own potential bugs. Cost: hours of upgrade work + 1 build credit. Possible outcome: working build on iOS 26.4.2. No guarantee fix has actually shipped in canary yet — verify before upgrading.
+
+**Path D — Borrow a Mac for a dev client build.** Issue #44680 confirms dev client builds work on iOS 26 because Hermes runs interpreted (no PAC issue). Requires Mac access for a few hours. Outcome: app runs on user's iPhone for personal testing. Does NOT get to TestFlight. Useful for demoing or validating the JS work on device while waiting for upstream fix.
+
+### Recommended pre-decision actions (free, no builds, do FIRST)
+
+1. **Comment on expo/expo#44356 with your specific crash details** — iPhone 14 Pro / iOS 26.4.2 (build 23E261) / SDK 54.0.33 / paste the crash log signature. Adds a data point for upstream maintainers; helps prioritize the fix.
+2. **Check issue #44356 + #44680 + #41824 for activity in the last 48 hours** — comments, linked PRs, canary releases, recommended workarounds. The situation evolves.
+3. **THEN decide between A/B/C/D** based on what you find.
+
+### What this means for the next session opener
+
+When tomorrow's session starts, before doing anything else:
+- web_fetch this handoff
+- Check the three GitHub issues for upstream fix progress
+- Ask the user which path (A/B/C/D) they want, or whether the upstream picture has changed
+- Do NOT propose code changes or builds until path is chosen
+- If user picks B (TestFlight despite crash): step 1 is cherry-picking the three UI fixes from `backup-before-reset-2026-05-02` onto main as local commits, then setting up EAS production profile + App Store Connect
+
+### Hard rules carried into next session
+
+- No `git push origin main` without `[skip ci]` in the commit message until the upstream bug is resolved. Every push without `[skip ci]` runs `ci.yml` which queues an EAS build (~1 credit).
+- No EAS builds at all until the user picks a path.
+- The recovery branch `backup-before-reset-2026-05-02` is the source of beta-quality JS. Don't lose it.
