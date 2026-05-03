@@ -203,3 +203,91 @@ When tomorrow's session starts, before doing anything else:
 - No `git push origin main` without `[skip ci]` in the commit message until the upstream bug is resolved. Every push without `[skip ci]` runs `ci.yml` which queues an EAS build (~1 credit).
 - No EAS builds at all until the user picks a path.
 - The recovery branch `backup-before-reset-2026-05-02` is the source of beta-quality JS. Don't lose it.
+## 10. May 3 session — corrections to prior sections + today's findings
+
+### What today established
+
+This section supersedes earlier sections where they conflict. Earlier sections preserved as historical record.
+
+#### Correction 1 — Recovery branch has NOTHING unique on it
+
+Section 4 and Section 9 both claim `backup-before-reset-2026-05-02` (`0b13d28`) preserves JS work that needs to be cherry-picked back onto main. **This is false.** Verified today via `git log --all --oneline --graph`: the history is a single linear chain, no fork. Every commit on the recovery branch is also reachable from main HEAD. The hard reset at `e54cfe8` reset file *contents* to match `82f5170` but main's git history still descends from the slider/UI/blob work.
+
+Specifically, current main `496fdc2` already contains in its tracked files:
+- Slider rating UI (`cad7eab` — verified today: `git merge-base --is-ancestor cad7eab HEAD` returns 0)
+- Cosign UI (`7b62f00`)
+- Scroll padding fix (`a10f29f`)
+- Modal cleanup (`5793341`)
+- DismissKeyboardView (`aed6217`)
+- Auth routing fix (`3744b87`)
+- RN blob upload bug fix + onboarding deep-link (`65a2de1`)
+- Slider component file present in tree at `e54cfe8`
+
+**Action implication:** No cherry-pick needed. The "Decisions to make next session #1" item in Section 5 is already done — the JS work is on main. Sections 4 and 9 should be read with this correction.
+
+#### Correction 2 — Crash signature does NOT match #44356 PAC fingerprint
+
+Section 2 confidently identifies the blocker as expo/expo#44356 (Hermes PAC pointer authentication). Detailed fingerprint analysis today showed otherwise:
+
+- #44356 fingerprint: `EXC_BAD_ACCESS` / `KERN_PROTECTION_FAILURE`, faulting thread `com.facebook.react.runtime.JavaScript`, frames inside `hermesvm` (`HiddenClass::findProperty`, `JSObject::getNamedDescriptorUnsafe`).
+- Actual crash fingerprint (verified across builds 4 May 1 / build 4 May 2 / build 6 May 2, byte-identical offsets `437152, 432456, 438300, 141716`): `EXC_CRASH` / `SIGABRT`, `abort() called`, faulting thread is GCD queue `expo.controller.errorRecoveryQueue`, **zero hermesvm frames in the stack**, `lastExceptionBacktrace` shows `__exceptionPreprocess` → `objc_exception_throw` → 4 frames in PlayRate binary → `_dispatch_call_block_and_release`.
+
+This is an NSException raised on a GCD queue with no Obj-C handler, causing `std::terminate` → `abort()`. Per Expo's error-recovery docs, this is the documented re-throw path expo-updates uses when an early-startup JS fatal can't be recovered from. The actual error is upstream of expo-updates, not the PAC bug.
+
+The May 2 narrative ("upstream Expo SDK 54 + iOS 26.4.2 PAC bug") is partially right and partially wrong:
+- **Right:** the variable is the iOS update on the test device (Section 7 hypothesis 6 — build 3 IPA reinstall — is solid evidence).
+- **Wrong:** the specific upstream issue is not #44356. The actual upstream issue (if there is one) is unidentified.
+
+#### Correction 3 — "Apple dev logout" never happened
+
+A concern surfaced this session: did a prior AI session have the user log out of Apple Developer / sign out of an account / tear down credentials? Comprehensive Cursor transcript extraction across all `agent-transcripts/*.jsonl` for Apr 28 – May 3 surfaced **no logout instruction**. Closest matches were routine: deleting a cached Ad Hoc provisioning profile via `eas-cli credentials` so EAS could mint a push-capable replacement, and enabling Push Notifications on App ID `com.playrate.app` in Apple Developer portal. **Nothing was torn down. User is not locked out of any service.**
+
+#### Correction 4 — Path C ("SDK canary") has no evidence of containing a PAC fix
+
+Section 9 Path C suggests trying SDK canary as a possible workaround. Searches today across expo/expo#44356, #44680, #44606, and related Hermes issues found no canary release that contains a confirmed PAC fix or NSException-on-errorRecoveryQueue fix. Spending a credit on canary is gambling, not high-confidence experimentation. **Path C should not be pursued without a specific canary release containing a documented fix for the actual fingerprint.**
+
+### Today's cost
+
+- 0 build credits spent.
+- ~6 hours diagnostic investigation, much of it duplicative of May 2 work.
+- Lesson learned: pull Cursor agent transcripts FIRST when picking up a multi-session bug. Today's correct insights came from `STREAM_d8b5c305_plain.txt` and `STREAM_d166269c_plain.txt` (extracted via Cursor agent into `agent-tools/`), which would have collapsed hours of speculation into minutes.
+
+### The single experiment that has NEVER been run
+
+May 2 ruled out every reasonable code-side hypothesis. **One free experiment remains untried:** install the build 7 IPA (already paid for, lives on EAS dashboard 88 days) on **any iPhone NOT running iOS 26.4.2**. Friend, family, old device in a drawer. Outcomes:
+- **Launches successfully** → confirms phone OS is the variable. Path A (wait for upstream) is correct strategy. Document iOS version at which app starts working; that's tester eligibility for Path B.
+- **Crashes identically** → bug is more specific than "iOS 26.4.2 broke it." Reopen investigation.
+- **Crashes differently** → new fingerprint to investigate.
+
+This is the highest-value next action available, free, requires only physical access to one non-26.4.2 iPhone.
+
+### Tooling installed this session
+
+- Python 3.12.10 via `winget install Python.Python.3.12` (location: `C:\Users\burto\AppData\Local\Programs\Python\Python312\python.exe`). Microsoft Store alias intercepts `python` on PATH; use the full path directly or `Set-Alias -Name python -Value <path>` per session.
+- `pymobiledevice3` 9.12.0 via `python -m pip install`. Cannot run on this Windows machine without Apple Mobile Device Service (ships with iTunes / Apple Devices app); not installed. Tool is available if Apple Devices is installed in a future session.
+
+### Updated open work for next session
+
+Section 5 "Decisions to make next session" is partially superseded:
+
+1. ~~Restore JS work to main~~ → **Already done; nothing to restore. Skip this item.**
+2. **Sentry first-event mismatch** — config plugin says `org=playrate, project=playrate`; actual Sentry project is `garganese/react-native`. Free fix; defer until app launches at all so we can validate events flow.
+3. **Non-iOS-26.4.2 testing path** — promoted to PRIMARY action. See "single experiment never run" above.
+
+Post-fix work in Section 5 unchanged.
+
+### Hard rules carried forward (unchanged)
+
+- No `git push origin main` without `[skip ci]` until upstream bug resolves.
+- No EAS builds.
+- Do not re-enable `prebuild-ios.yml`.
+- Pull Cursor agent transcripts at start of any session that is picking up a multi-day bug.
+
+### Verification before completing this handoff (May 3)
+
+1. HEAD on main is `496fdc2` (was `e54cfe8` on May 2 — three docs-only commits since)
+2. Working tree clean (`git status` shows no untracked or modified files)
+3. Slider commit `cad7eab` is reachable from HEAD (`git merge-base --is-ancestor cad7eab HEAD` exits 0)
+4. No code changes today; this is a docs-only update
+5. No build credits spent today
+
