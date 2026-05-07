@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.playrate.app",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow PlayRate to use your camera to film or photograph highlights.",
         "NSLocationWhenInUseUsageDescription": "Allow PlayRate to use your location to find courts near you.",
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.playrate.app",
-      "versionCode": 7,
+      "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#0000FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -80,7 +80,7 @@
         {
           "url": "https://sentry.io/",
           "organization": "playrate",
-          "project": "playrate"
+          "project": "react-native"
         }
       ],
       [
