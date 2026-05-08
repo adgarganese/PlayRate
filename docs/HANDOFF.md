@@ -1,3 +1,30 @@
+> ## STATUS AS OF 2026-05-07 EOD — READ BEFORE ANY OTHER SECTION
+>
+> **The launch crash investigation is RESOLVED.**
+>
+> - **Root cause:** dynamic `env[envKey]` access in `lib/config.ts` prevented `babel-preset-expo`'s `expoInlineEnvVars` plugin from inlining `EXPO_PUBLIC_*` values into the JS bundle. `lib/supabase.ts` threw "Missing Supabase configuration" at import time; `expo-updates` wrapped it as the `errorRecoveryQueue` SIGABRT we saw across all builds.
+> - **Fix:** commit `209e81d` rewrote `lib/config.ts` with static `process.env.EXPO_PUBLIC_NAME` accesses at every call site so Babel can inline.
+> - **Current state:** HEAD is `6ae38ef` on `main`, pushed to origin. Build 9 (`b79a5e46`, version 1.1.2) launches on iPhone 14 Pro. Production build 1.1.3 (28) (`fb162cce`) submitted to App Store Connect; processing in flight.
+>
+> **DO NOT ACT ON SECTIONS 2, 7, OR 9 BELOW.** They document a wrong hypothesis (iOS 26.4.2 / Hermes PAC bug / `expo/expo#44356`) that was definitively disproven. They are preserved temporarily as historical record only. Section 10 corrects parts of them.
+>
+> **Top of next-session list (in priority order):**
+> 1. Draft the full post-mortem at `docs/post-mortems/2026-05-07-launch-crash-investigation.md` per agreed structure (TL;DR → Root Cause → Timeline → Wrong Paths → Near Misses → Tooling Gaps → Verification Ladder → Lessons → Cost → Follow-ups → Appendices).
+> 2. After post-mortem exists, restructure this HANDOFF.md: remove or quarantine the wrong sections, link the post-mortem.
+> 3. Add tester to TestFlight (after Apple processing email arrives at adgarganese@gmail.com).
+> 4. Sentry: confirm crash events flow to `playrate/react-native` dashboard from a real device crash. If not, native `AppDelegate.swift` Sentry init may be required for pre-JS coverage.
+> 5. Verify production `EXPO_PUBLIC_POSTHOG_API_KEY` (previously had a `--environment` suffix; cleaned during this session) lands clean in the next production build's bundle.
+>
+> **DO-NOT-ASSUME guardrails (lessons from May 1–7):**
+> - EAS dashboard env present ≠ values inlined in the JS bundle. Always verify with bundle inspection.
+> - `EXPO_PUBLIC_*` must be statically referenced as `process.env.EXPO_PUBLIC_NAME` (literal member access) for Metro inlining. Dynamic indexing is silently invisible to Babel.
+> - Crash on `expo.controller.errorRecoveryQueue` is `expo-updates` rethrow — the actual JS error is logged via `os_log`, captured via Mac Console.app. Do not treat the rethrow stack as the root cause.
+> - Assistant memory is summary, not source of truth. Verify org slugs, branch state, CI enforcement, and any version/path claims against `git`/repo before acting.
+>
+> **Bundle verification runbook (Windows):** Use ONE pattern per `Select-String -SimpleMatch` command. Pipe `|` in patterns is treated as a literal character with `-SimpleMatch`, not regex alternation — using `"a|b|c"` produces silent false negatives.
+>
+> ---
+
 # PlayRate Handoff
 
 > Single source of truth for current project state. Updated at end of every working session. For tactical details (how a specific fix was implemented, what was tried), prompt Cursor — this doc is state, not history.
