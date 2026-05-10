@@ -6,11 +6,11 @@
 > - **Fix:** commit `209e81d` rewrote `lib/config.ts` with static `process.env.EXPO_PUBLIC_NAME` accesses at every call site so Babel can inline.
 > - **Current state:** HEAD is `6ae38ef` on `main`, pushed to origin. Build 9 (`b79a5e46`, version 1.1.2) launches on iPhone 14 Pro. Production build 1.1.3 (28) (`fb162cce`) submitted to App Store Connect; processing in flight.
 >
-> **DO NOT ACT ON SECTIONS 2, 7, OR 9 BELOW.** They document a wrong hypothesis (iOS 26.4.2 / Hermes PAC bug / `expo/expo#44356`) that was definitively disproven. They are preserved temporarily as historical record only. Section 10 corrects parts of them.
+> **DO NOT ACT ON SECTIONS 2, 7, OR 9 BELOW.** They document a wrong hypothesis (iOS 26.4.2 / Hermes PAC bug / `expo/expo#44356`) that was definitively disproven on 2026-05-05 by cross-device testing. The full resolved post-mortem lives at [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md) — read it for the actual root cause. Sections 2/7/9 are preserved temporarily as historical record only. Section 10 corrects parts of them but itself predates the root-cause finding and contains one drifted sub-claim about the Sentry slug — see the banner at the top of that section.
 >
 > **Top of next-session list (in priority order):**
-> 1. Draft the full post-mortem at `docs/post-mortems/2026-05-07-launch-crash-investigation.md` per agreed structure (TL;DR → Root Cause → Timeline → Wrong Paths → Near Misses → Tooling Gaps → Verification Ladder → Lessons → Cost → Follow-ups → Appendices).
-> 2. After post-mortem exists, restructure this HANDOFF.md: remove or quarantine the wrong sections, link the post-mortem.
+> 1. ~~Draft the full post-mortem~~ — **DONE 2026-05-10.** See [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
+> 2. Full HANDOFF.md restructure: replace stale sections 2–5/7/9, fold in the post-mortem's lessons, drop the historical-record quarantine banners. The current banners are a bridge, not a final state.
 > 3. Add tester to TestFlight (after Apple processing email arrives at adgarganese@gmail.com).
 > 4. Sentry: confirm crash events flow to `playrate/react-native` dashboard from a real device crash. If not, native `AppDelegate.swift` Sentry init may be required for pre-JS coverage.
 > 5. Verify production `EXPO_PUBLIC_POSTHOG_API_KEY` (previously had a `--environment` suffix; cleaned during this session) lands clean in the next production build's bundle.
@@ -39,6 +39,8 @@ _Recovery branch: `backup-before-reset-2026-05-02` at `0b13d28` (preserves recen
 PlayRate — mobile social app for pickup and recreational athletes. Multi-sport infrastructure exists; basketball-first for beta.
 
 ## 2. CRITICAL — READ BEFORE TOUCHING ANYTHING
+
+> **🚫 SUPERSEDED — historical record only.** The "iOS 26.4.2 / Hermes PAC bug / `expo/expo#44356`" hypothesis in this section was disproven on 2026-05-05 — installing the same IPA on iPhone 16 Plus running iOS 26.3.1 reproduced an identical crash, refuting both the OS-version variable and the specific upstream issue. The actual root cause (dynamic env indexing in `lib/config.ts` preventing Babel inlining of `EXPO_PUBLIC_*` values) was identified on 2026-05-07. **For the resolved analysis, read [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).** This section is preserved as part of the investigation record and will be removed in the next HANDOFF restructure.
 
 **The app is currently blocked by a confirmed upstream Expo SDK 54 bug, not by anything in this repo.**
 
@@ -137,6 +139,8 @@ When bumping for a new build, edit ALL of these in one commit:
 
 ## 7. May 2 session — what was tried, what we know, what we burned
 
+> **🚫 SUPERSEDED — historical record only.** The hypothesis-elimination table below was logically valid in form, but every "ruled out" conclusion is misattributed: none of these tests actually disprove the eventual root cause. Tests #4 and #5 (restoring `ios/` from baseline and hard-resetting to `82f5170`) preserved the broken JS bundle while varying native config, so the negative results isolated nothing. Test #6 (reinstalling build 3) was interpreted as confirming "phone OS is the variable" but the broken bundle was the same in both runs. **See [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md) — Wrong Paths and Appendix B for the corrected interpretation.**
+
 This section exists so tomorrow's session does not repeat any of these.
 
 ### Hypotheses tested (and ruled out)
@@ -177,6 +181,8 @@ This section exists so tomorrow's session does not repeat any of these.
 7. ✅ `prebuild-ios.yml` workflow disabled in GitHub UI
 
 ## 9. Beta-quality scope and launch decision tree (added 2026-05-02 EOD)
+
+> **🚫 SUPERSEDED — historical record only.** The decision tree below is built on the disproven upstream-bug premise. Path A (wait for upstream fix) was the operative recommendation; the actual fix was a code-side change to `lib/config.ts` shipped on May 7 (commit `209e81d`). Build 9 launched cleanly on iPhone 14 Pro on iOS 26.4.2 — the OS version was never the variable. The framing here (cross-device testing as a free experiment, build-credit conservation as a hard rule) generalizes and is folded into the post-mortem's Verification Ladder; the specific A/B/C/D paths are no longer relevant. **See [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).**
 
 ### What "beta-ready" actually means for this project
 
@@ -231,6 +237,8 @@ When tomorrow's session starts, before doing anything else:
 - No EAS builds at all until the user picks a path.
 - The recovery branch `backup-before-reset-2026-05-02` is the source of beta-quality JS. Don't lose it.
 ## 10. May 3 session — corrections to prior sections + today's findings
+
+> **⚠️ PARTIALLY CORRECT — predates root-cause finding.** Three corrections here are right and important: the recovery branch was empty (Correction 1), the crash fingerprint did not match #44356 PAC (Correction 2), and no "Apple dev logout" happened (Correction 3). One sub-claim under "Updated open work" is itself drifted: it says "actual Sentry project is `garganese/react-native`" — the org is `playrate`, only the project name was wrong in committed config (was `playrate`, should have been `react-native`). The "single experiment never run" callout was correct and was the experiment that ran on 2026-05-05; it disproved the OS-version hypothesis without surfacing the real cause. **The full resolved root cause is in [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).**
 
 ### What today established
 
