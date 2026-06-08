@@ -70,6 +70,7 @@ export type Court = {
   id: string;
   name: string;
   address: string | null;
+  featured_photo_url: string | null;
   lat: number | null;
   lng: number | null;
   created_by: string | null;
@@ -91,6 +92,7 @@ export type Court = {
 
 /** Row shape from court_sports select with sports!inner(name) */
 type CourtSportRow = { court_id: string; sports: { name: string } | null };
+type CourtPrimaryPhotoRow = { court_id: string; storage_path: string };
 
 /**
  * Fetch all courts with their sports and follow status.
@@ -142,6 +144,24 @@ export async function fetchCourts(userId?: string, searchQuery?: string) {
   // Query 3: Fetch court_sports + sports for all courts (two-table join)
   const courtIds = courtsData.map(c => c.id);
 
+  const { data: primaryPhotoData, error: primaryPhotoError } = await supabase
+    .from('court_photos')
+    .select('court_id, storage_path')
+    .in('court_id', courtIds)
+    .eq('slot', COURT_PHOTO_PRIMARY_SLOT);
+
+  if (primaryPhotoError) {
+    logger.warn('[fetchCourts] Primary court photos query failed', { err: primaryPhotoError });
+  }
+
+  const featuredPhotoByCourt: Record<string, string> = {};
+  if (primaryPhotoData) {
+    (primaryPhotoData as CourtPrimaryPhotoRow[]).forEach((photo) => {
+      const publicUrl = supabase.storage.from('court-photos').getPublicUrl(photo.storage_path).data.publicUrl;
+      featuredPhotoByCourt[photo.court_id] = publicUrl;
+    });
+  }
+
   const { data: courtSportsData, error: courtSportsError } = await supabase
     .from('court_sports')
     .select('court_id, sport_id, sports!inner(name)')
@@ -170,6 +190,7 @@ export async function fetchCourts(userId?: string, searchQuery?: string) {
     lat: null,
     lng: null,
     created_by: null,
+    featured_photo_url: featuredPhotoByCourt[court.id] ?? null,
     sports: sportsByCourt[court.id] || [],
     isFollowed: followedCourtIds.has(court.id),
   })) as Court[];
@@ -270,6 +291,7 @@ export async function fetchCourtById(courtId: string) {
 
   return {
     ...courtData,
+    featured_photo_url: null,
     sports,
     amenities,
   } as Court;
@@ -375,6 +397,7 @@ export async function fetchCourtsNearLocation(
     ...court,
     lat: court.lat as number,
     lng: court.lng as number,
+    featured_photo_url: null,
     sports: sportsByCourt[court.id] || [],
   })) as Court[];
 }

@@ -1,20 +1,13 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Card } from './Card';
 import { AnimatedPressable } from './ui/AnimatedPressable';
+import { IconSymbol } from './ui/icon-symbol';
 import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
+import type { Court } from '@/lib/courts';
 
-export type Court = {
-  id: string;
-  name: string;
-  address: string | null;
-  lat: number | null;
-  lng: number | null;
-  created_by: string | null;
-  created_at: string;
-  sports: string[];
-  isFollowed?: boolean;
-};
+const IMAGE_TRANSITION_MS = 160;
 
 type CourtCardProps = {
   court: Court;
@@ -26,29 +19,48 @@ export default function CourtCard({ court, onPress }: CourtCardProps) {
 
   return (
     <AnimatedPressable onPress={() => onPress(court.id)}>
-      <Card style={styles.courtCard}>
-        <View style={styles.courtCardHeader}>
-          <Text style={[styles.courtName, { color: colors.text }]}>{court.name}</Text>
+      <Card elevated={false} style={styles.courtCard}>
+        <Text
+          style={[styles.courtName, { color: colors.text }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {court.name}
+        </Text>
+
+        <View style={[styles.photoArea, { backgroundColor: colors.surfaceAlt }]}>
+          {court.featured_photo_url ? (
+            <Image
+              source={{ uri: court.featured_photo_url }}
+              style={styles.photo}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={IMAGE_TRANSITION_MS}
+              recyclingKey={court.id}
+            />
+          ) : (
+            <View style={styles.photoPlaceholder}>
+              <IconSymbol name="sportscourt.fill" size={48} color={colors.textMuted} />
+            </View>
+          )}
           {court.isFollowed && (
             <View style={[styles.followedBadge, { backgroundColor: colors.primary + '20', borderColor: colors.primary }]}>
               <Text style={[styles.followedBadgeText, { color: colors.text }]}>Following</Text>
             </View>
           )}
         </View>
-        {court.address && (
-          <Text style={[styles.courtAddress, { color: colors.textMuted }]}>{court.address}</Text>
-        )}
-        {court.sports.length > 0 ? (
-          <View style={styles.sportsContainer}>
-            {court.sports.map((sport, index) => (
-              <View key={index} style={[styles.sportBadge, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <Text style={[styles.sportBadgeText, { color: colors.text }]}>{sport}</Text>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <Text style={[styles.noSportsText, { color: colors.textMuted }]}>No sports listed</Text>
-        )}
+
+        <View style={styles.addressBand}>
+          {court.address ? (
+            <Text
+              style={[styles.courtAddress, { color: colors.textMuted }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {court.address}
+            </Text>
+          ) : null}
+        </View>
       </Card>
     </AnimatedPressable>
   );
@@ -56,49 +68,54 @@ export default function CourtCard({ court, onPress }: CourtCardProps) {
 
 const styles = StyleSheet.create({
   courtCard: {
-    marginBottom: Spacing.md,
-  },
-  courtCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
+    padding: 0,
+    overflow: 'hidden',
   },
   courtName: {
     ...Typography.bodyBold,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
+  },
+  photoArea: {
+    aspectRatio: 3 / 4,
+    width: '100%',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photo: {
+    width: '100%',
+    height: '100%',
+  },
+  photoPlaceholder: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   followedBadge: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    minHeight: 24,
+    minWidth: 70,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.xs,
+    borderRadius: Radius.full,
     borderWidth: 1,
-    marginLeft: Spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   followedBadgeText: {
     ...Typography.mutedSmall,
     fontWeight: '600',
   },
-  courtAddress: {
-    ...Typography.muted,
-    marginBottom: Spacing.md,
-  },
-  sportsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  sportBadge: {
+  addressBand: {
+    minHeight: 32,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.xs,
-    borderWidth: 1,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.md,
+    justifyContent: 'center',
   },
-  sportBadgeText: {
+  courtAddress: {
     ...Typography.mutedSmall,
-  },
-  noSportsText: {
-    ...Typography.muted,
-    fontStyle: 'italic',
   },
 });

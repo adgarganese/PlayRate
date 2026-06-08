@@ -2,7 +2,7 @@
  * REINTRODUCTION STEP 2: Real Courts screen restored. Highlights, Athletes, Profile remain placeholders.
  * Stable baseline: Home + Courts real; minimal tab shell; no haptics.
  */
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   SectionList,
@@ -38,6 +38,19 @@ type CourtSection = {
   data: Court[];
 };
 
+type CourtRowSection = {
+  title: string;
+  data: Court[][];
+};
+
+function chunkCourts(courts: Court[]): Court[][] {
+  const rows: Court[][] = [];
+  for (let i = 0; i < courts.length; i += 2) {
+    rows.push(courts.slice(i, i + 2));
+  }
+  return rows;
+}
+
 export default function CourtsScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -51,6 +64,14 @@ export default function CourtsScreen() {
   const [searchInput, setSearchInput] = useState('');
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SEARCH_DEBOUNCE_MS = 300;
+
+  const chunkedSections = useMemo<CourtRowSection[]>(
+    () => sections.map((section) => ({
+      title: section.title,
+      data: chunkCourts(section.data),
+    })),
+    [sections]
+  );
 
   useEffect(() => {
     if (debounceTimerRef.current) {
@@ -150,21 +171,32 @@ export default function CourtsScreen() {
     router.push(`/courts/${courtId}`);
   };
 
-  const renderSectionHeader = ({ section }: { section: CourtSection }) => (
+  const renderSectionHeader = ({ section }: { section: CourtRowSection }) => (
     <View style={[styles.sectionHeader, { backgroundColor: colors.bg }]}>
       <AppText variant="bodyBold" color="text">{section.title}</AppText>
     </View>
   );
 
-  const renderItem = ({ item, index, section }: SectionListRenderItemInfo<Court, CourtSection>) => {
-    const sectionIndex = sections.indexOf(section);
+  const renderItem = ({ item, index, section }: SectionListRenderItemInfo<Court[], CourtRowSection>) => {
+    const sectionIndex = chunkedSections.indexOf(section);
     const flatIndex =
       sectionIndex <= 0
         ? index
-        : sections.slice(0, sectionIndex).reduce((sum, s) => sum + s.data.length, 0) + index;
+        : chunkedSections.slice(0, sectionIndex).reduce((sum, s) => sum + s.data.length, 0) + index;
+    const [leftCourt, rightCourt] = item;
+
+    if (!leftCourt) return null;
+
     return (
-      <AnimatedListItem index={flatIndex}>
-        <CourtCard court={item} onPress={handleCourtPress} />
+      <AnimatedListItem index={flatIndex} style={styles.gridRow}>
+        <View style={styles.gridCell}>
+          <CourtCard court={leftCourt} onPress={handleCourtPress} />
+        </View>
+        <View style={styles.gridCell}>
+          {rightCourt ? (
+            <CourtCard court={rightCourt} onPress={handleCourtPress} />
+          ) : null}
+        </View>
       </AnimatedListItem>
     );
   };
@@ -241,8 +273,8 @@ export default function CourtsScreen() {
               isDark ? { backgroundColor: colors.bg } : undefined,
               { paddingBottom: scrollBottomPadding },
             ]}
-            sections={sections}
-            keyExtractor={(item) => item.id}
+            sections={chunkedSections}
+            keyExtractor={(item, index) => item[0]?.id ? `${item[0].id}-${item[1]?.id ?? 'single'}` : `row-${index}`}
             renderItem={renderItem}
             renderSectionHeader={renderSectionHeader}
             refreshControl={
@@ -300,6 +332,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContainer: {},
+  gridRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  gridCell: {
+    flex: 1,
+  },
   sectionHeader: {
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,

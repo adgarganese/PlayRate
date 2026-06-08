@@ -4,23 +4,34 @@ import { Card } from '@/components/Card';
 import { SkeletonPlaceholder } from '@/components/ui/SkeletonPlaceholder';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 
-const PHOTO_SIZE = 56;
+const SKELETON_ROWS = 2;
+const SKELETON_COLUMNS = 2;
 
-function CourtRowSkeleton() {
+function CourtGridCardSkeleton() {
   return (
     <Card style={styles.courtCard}>
-      <View style={styles.row}>
-        <SkeletonBlock width={PHOTO_SIZE} height={PHOTO_SIZE} borderRadius={Radius.sm} />
-        <View style={styles.textCol}>
-          <View style={styles.titleRow}>
-            <SkeletonBlock width="100%" height={18} borderRadius={Radius.xs} style={styles.nameBar} />
-            <SkeletonBlock width={72} height={22} borderRadius={Radius.xs} />
-          </View>
-          <SkeletonBlock width="85%" height={14} borderRadius={Radius.xs} style={styles.locBar} />
-          <SkeletonBlock width={100} height={12} borderRadius={Radius.xs} style={styles.ratingBar} />
-        </View>
+      <View style={styles.nameBand}>
+        <SkeletonBlock width="60%" height={18} borderRadius={Radius.xs} />
+      </View>
+      <View style={styles.photoSlot}>
+        <SkeletonBlock width="100%" height="100%" borderRadius={0} />
+      </View>
+      <View style={styles.addressBand}>
+        <SkeletonBlock width="40%" height={12} borderRadius={Radius.xs} />
       </View>
     </Card>
+  );
+}
+
+function CourtGridRowSkeleton({ rowIndex }: { rowIndex: number }) {
+  return (
+    <View style={styles.row}>
+      {Array.from({ length: SKELETON_COLUMNS }, (_, columnIndex) => (
+        <View key={`${rowIndex}-${columnIndex}`} style={styles.cell}>
+          <CourtGridCardSkeleton />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -28,8 +39,8 @@ export function CourtListSkeleton() {
   return (
     <SkeletonPlaceholder>
       <View style={[styles.list, styles.listFlex]}>
-        {[0, 1, 2, 3].map((i) => (
-          <CourtRowSkeleton key={i} />
+        {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+          <CourtGridRowSkeleton key={i} rowIndex={i} />
         ))}
       </View>
     </SkeletonPlaceholder>
@@ -38,7 +49,6 @@ export function CourtListSkeleton() {
 
 const styles = StyleSheet.create({
   list: {
-    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xl,
   },
@@ -46,34 +56,31 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   courtCard: {
-    marginBottom: Spacing.md,
+    padding: 0,
+    overflow: 'hidden',
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
     gap: Spacing.md,
+    marginBottom: Spacing.md,
   },
-  textCol: {
+  cell: {
     flex: 1,
-    minWidth: 0,
-    paddingTop: 2,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
+  nameBand: {
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
   },
-  nameBar: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: Spacing.sm,
+  photoSlot: {
+    width: '100%',
+    aspectRatio: 3 / 4,
   },
-  locBar: {
-    marginBottom: Spacing.sm,
-  },
-  ratingBar: {
-    marginTop: 2,
+  addressBand: {
+    minHeight: 32,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.md,
+    justifyContent: 'center',
   },
 });
