@@ -14,6 +14,7 @@ import { Spacing } from '@/constants/theme';
 import { useOnboardingExit } from '@/hooks/use-onboarding-exit';
 import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 import { logDevError } from '@/lib/dev-log';
+import { hapticLight } from '@/lib/haptics';
 
 const FRIENDS_QUERY_LIMIT = 15;
 const ONBOARDING_FRIENDS_SHOW = 8;
@@ -109,7 +110,10 @@ export default function OnboardingPlayersScreen() {
 
   const skipButton = (
     <TouchableOpacity
-      onPress={() => void exitToHome()}
+      onPress={() => {
+        hapticLight();
+        void exitToHome();
+      }}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
       accessibilityLabel="Skip onboarding"
@@ -127,8 +131,8 @@ export default function OnboardingPlayersScreen() {
   return (
     <Screen>
       <Header
-        title="Follow some players"
-        subtitle="Follow a few people to see highlights and activity in your feed."
+        title="Find your crew"
+        subtitle="Follow a few players to bring your feed to life."
         showBack={false}
         rightElement={skipButton}
       />
@@ -150,7 +154,14 @@ export default function OnboardingPlayersScreen() {
             />
           </View>
         ))}
-        <Button title="Continue" onPress={() => router.push('/onboarding/done' as any)} variant="primary" />
+        <Button
+          title="Continue"
+          onPress={() => {
+            hapticLight();
+            router.push('/onboarding/done' as any);
+          }}
+          variant="primary"
+        />
       </ScrollView>
     </Screen>
   );

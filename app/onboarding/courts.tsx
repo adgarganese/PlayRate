@@ -103,7 +103,10 @@ export default function OnboardingCourtsScreen() {
 
   const skipButton = (
     <TouchableOpacity
-      onPress={() => void exitToHome()}
+      onPress={() => {
+        hapticLight();
+        void exitToHome();
+      }}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
       accessibilityLabel="Skip onboarding"
@@ -199,8 +202,8 @@ export default function OnboardingCourtsScreen() {
   return (
     <Screen>
       <Header
-        title="Find courts near you"
-        subtitle="Follow courts you play at to personalize runs and your feed."
+        title="Pick your home courts"
+        subtitle="Follow courts you play at to shape runs and your feed."
         showBack={false}
         rightElement={skipButton}
       />
@@ -213,10 +216,10 @@ export default function OnboardingCourtsScreen() {
           <Card style={styles.card}>
             <AppText variant="muted" color="textMuted" style={styles.fallbackCopy}>
               {showLocationDenied
-                ? 'Location is off. Search by city or skip — you can always find courts from the Courts tab.'
+                ? 'Location is off. Search by city, or find courts later from the Courts tab.'
                 : rpcFailed
-                  ? 'Nearby search had a problem. Try finding a court by name or city below.'
-                  : 'No courts in GPS range yet. Search by city or name, or add a new court below.'}
+                  ? 'Nearby search missed. Try a court name or city below.'
+                  : 'No nearby courts yet. Search by city or add one below.'}
             </AppText>
             <View style={styles.cityRow}>
               <TextInput
@@ -284,7 +287,14 @@ export default function OnboardingCourtsScreen() {
           variant="secondary"
           style={styles.addCourt}
         />
-        <Button title="Continue" onPress={() => router.push('/onboarding/players' as any)} variant="primary" />
+        <Button
+          title="Continue"
+          onPress={() => {
+            hapticLight();
+            router.push('/onboarding/players' as any);
+          }}
+          variant="primary"
+        />
       </ScrollView>
     </Screen>
   );

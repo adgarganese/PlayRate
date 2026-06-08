@@ -25,6 +25,7 @@ import { Spacing } from '@/constants/theme';
 import { useThemeColors } from '@/contexts/theme-context';
 import { logger } from '@/lib/logger';
 import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
+import { hapticLight, hapticSelection } from '@/lib/haptics';
 
 export default function OnboardingRatingsScreen() {
   const { user } = useAuth();
@@ -86,7 +87,10 @@ export default function OnboardingRatingsScreen() {
 
   const skipButton = (
     <TouchableOpacity
-      onPress={() => void persistThenCourts()}
+      onPress={() => {
+        hapticLight();
+        void persistThenCourts();
+      }}
       disabled={saving}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
@@ -109,7 +113,7 @@ export default function OnboardingRatingsScreen() {
     <Screen>
       <Header
         title="Rate your game"
-        subtitle="Tap a score from 1–10 for each skill. You can update these later in Self Ratings."
+        subtitle="Honest ratings make better matches."
         showBack={false}
         rightElement={skipButton}
       />
@@ -125,7 +129,10 @@ export default function OnboardingRatingsScreen() {
               <Button
                 key={sport.id}
                 title={sport.name}
-                onPress={() => setSelectedSport(sport)}
+                onPress={() => {
+                  if (selectedSport?.id !== sport.id) hapticSelection();
+                  setSelectedSport(sport);
+                }}
                 variant={selectedSport?.id === sport.id ? 'primary' : 'secondary'}
                 style={styles.sportButton}
               />
@@ -163,8 +170,11 @@ export default function OnboardingRatingsScreen() {
         )}
 
         <Button
-          title="Next"
-          onPress={() => void persistThenCourts()}
+          title="Continue"
+          onPress={() => {
+            hapticLight();
+            void persistThenCourts();
+          }}
           variant="primary"
           style={styles.next}
           loading={saving}

@@ -8,16 +8,19 @@ import { Header } from '@/components/ui/Header';
 import { SectionTitle } from '@/components/SectionTitle';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/ui/Button';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AppText } from '@/components/ui/AppText';
 import { OnboardingProgress } from '@/components/onboarding/OnboardingProgress';
-import { Spacing } from '@/constants/theme';
+import { Spacing, Radius } from '@/constants/theme';
+import { useThemeColors } from '@/contexts/theme-context';
 import { isSportEnabled } from '@/constants/sport-definitions';
 import { logger } from '@/lib/logger';
 import { UI_LOAD_FAILED } from '@/lib/user-facing-errors';
 import { useOnboardingExit } from '@/hooks/use-onboarding-exit';
 import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
+import { hapticLight, hapticSelection } from '@/lib/haptics';
 
 type Sport = { id: string; name: string };
 type ProfileSport = { sport_id: string; sport: Sport };
@@ -25,6 +28,7 @@ type ProfileSport = { sport_id: string; sport: Sport };
 export default function OnboardingSportsScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { colors } = useThemeColors();
   const { exitToHome } = useOnboardingExit();
   const scrollBottomPadding = useScrollContentBottomPadding();
   const [allSports, setAllSports] = useState<Sport[]>([]);
@@ -85,6 +89,7 @@ export default function OnboardingSportsScreen() {
   const toggleSport = async (sport: Sport) => {
     if (!user || saving) return;
     const isSelected = mySports.some((ps) => ps.sport_id === sport.id);
+    if (!isSelected) hapticSelection();
     setSaving(true);
 
     if (isSelected) {
@@ -106,9 +111,39 @@ export default function OnboardingSportsScreen() {
     setSaving(false);
   };
 
+  const renderSportPill = (sport: Sport, isSelected: boolean) => (
+    <TouchableOpacity
+      key={sport.id}
+      onPress={() => void toggleSport(sport)}
+      disabled={saving}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={`${isSelected ? 'Remove' : 'Add'} ${sport.name}`}
+      accessibilityState={{ selected: isSelected, disabled: saving }}
+      style={[
+        styles.sportPill,
+        {
+          backgroundColor: isSelected ? `${colors.primary}20` : colors.surface,
+          borderColor: isSelected ? colors.primary : colors.border,
+        },
+        saving && styles.sportPillDisabled,
+      ]}
+    >
+      {isSelected && (
+        <IconSymbol name="checkmark.circle.fill" size={16} color={colors.primary} />
+      )}
+      <AppText variant="bodyBold" color="text" style={styles.sportPillLabel}>
+        {sport.name}
+      </AppText>
+    </TouchableOpacity>
+  );
+
   const skipButton = (
     <TouchableOpacity
-      onPress={() => void exitToHome()}
+      onPress={() => {
+        hapticLight();
+        void exitToHome();
+      }}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
       accessibilityLabel="Skip onboarding"
@@ -129,8 +164,8 @@ export default function OnboardingSportsScreen() {
   return (
     <Screen>
       <Header
-        title="Pick your sports"
-        subtitle="Choose one or more — you can change this anytime in My Sports."
+        title="Build your roster"
+        subtitle="Add the sports you play. You can update later."
         showBack={false}
         rightElement={skipButton}
       />
@@ -150,15 +185,7 @@ export default function OnboardingSportsScreen() {
                 <SectionTitle>Selected</SectionTitle>
                 <View style={styles.sportGrid}>
                   {mySports.map((profileSport) => (
-                    <Button
-                      key={profileSport.sport_id}
-                      title={`${profileSport.sport.name} ✓`}
-                      onPress={() => void toggleSport(profileSport.sport)}
-                      variant="primary"
-                      size="medium"
-                      disabled={saving}
-                      style={styles.sportButton}
-                    />
+                    renderSportPill(profileSport.sport, true)
                   ))}
                 </View>
               </View>
@@ -168,14 +195,7 @@ export default function OnboardingSportsScreen() {
                 <SectionTitle>{mySports.length > 0 ? 'Add more' : 'Available sports'}</SectionTitle>
                 <View style={styles.sportGrid}>
                   {availableSports.map((sport) => (
-                    <Button
-                      key={sport.id}
-                      title={`+ ${sport.name}`}
-                      onPress={() => void toggleSport(sport)}
-                      variant="secondary"
-                      disabled={saving}
-                      style={styles.sportButton}
-                    />
+                    renderSportPill(sport, false)
                   ))}
                 </View>
               </View>
@@ -184,7 +204,10 @@ export default function OnboardingSportsScreen() {
         )}
         <Button
           title="Continue"
-          onPress={() => router.push('/onboarding/ratings' as any)}
+          onPress={() => {
+            hapticLight();
+            router.push('/onboarding/ratings' as any);
+          }}
           variant="primary"
           style={styles.next}
         />
@@ -198,6 +221,21 @@ const styles = StyleSheet.create({
   scroll: {},
   section: { marginBottom: Spacing.xl },
   sportGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
-  sportButton: {},
+  sportPill: {
+    minHeight: 44,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  sportPillDisabled: {
+    opacity: 0.6,
+  },
+  sportPillLabel: {
+    includeFontPadding: false,
+  },
   next: { marginTop: Spacing.md },
 });
