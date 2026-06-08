@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Modal, TouchableOpacity, type ViewStyle } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Modal, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
@@ -594,7 +594,8 @@ function CosignModal({
   onCancel: () => void;
   isSubmitting: boolean;
 }) {
-  const { colors } = useThemeColors();
+  const { colors, isDark } = useThemeColors();
+  const isLight = !isDark;
 
   return (
     <Modal
@@ -605,7 +606,7 @@ function CosignModal({
     >
       <View style={modalStyles.overlay}>
         <Card style={modalStyles.content}>
-          <Text style={[modalStyles.title, { color: colors.text }]}>Cosign Skill</Text>
+          <Text style={[modalStyles.title, { color: isLight ? '#000' : colors.text }]}>Cosign Skill</Text>
           <Text style={[modalStyles.subtitle, { color: colors.textMuted }]}>
             {sportName}: {attributeName}
           </Text>
@@ -614,7 +615,7 @@ function CosignModal({
           </Text>
 
           {error && (
-            <Text style={[modalStyles.errorText, { color: colors.text }]}>{error}</Text>
+            <Text style={[modalStyles.errorText, { color: isLight ? '#000' : colors.text }]}>{error}</Text>
           )}
 
           <View style={[modalStyles.buttons, { gap: Spacing.sm }]}>
@@ -634,8 +635,7 @@ function CosignModal({
               disabled={isSubmitting}
               showChevron={false}
               active
-              compact
-              style={StyleSheet.flatten([modalStyles.halfButton, { minHeight: 24, flex: 0.5 }]) as ViewStyle}
+              style={modalStyles.halfButton}
             />
           </View>
         </Card>

@@ -9,16 +9,16 @@
 import { Platform, TextStyle } from 'react-native';
 
 // ============================================================================
-// PRIMARY BLUE – single source of truth (exactly #0000FF everywhere used as primary)
+// PRIMARY BLUE – single source of truth (exactly #38BDF8 everywhere used as primary)
 // ============================================================================
-export const PRIMARY = '#0000FF' as const;
+export const PRIMARY = '#38BDF8' as const;
 
 /** Brand blue – same as PRIMARY. Use for headings, buttons, icons. */
 export const brandBlue = PRIMARY;
 
 /**
  * Dark mode blue override for buttons, icons, and blue text.
- * Light mode uses brandBlue (#0000FF); dark mode uses this (#38BDF8).
+ * Light mode uses brandBlue (#38BDF8); dark mode uses this (#38BDF8).
  */
 export const brandBlueDark = '#38BDF8' as const;
 
@@ -62,7 +62,7 @@ export const LightColors = {
 // COLOR TOKENS - Dark Mode
 // ============================================================================
 export const DarkColors = {
-  // Backgrounds (lightened for better contrast with #0000FF primary)
+  // Backgrounds (lightened for better contrast with #38BDF8 primary)
   bg: '#070A10',            // Near-black app background (dark mode only)
   surface: '#1A2238',       // Card/surface background (lightened from #12182A)
   surfaceAlt: '#1F2A42',    // Alternative surface (lightened from #161F35)
@@ -88,7 +88,7 @@ export const DarkColors = {
 // ACCENT COLORS (Theme-agnostic)
 // ============================================================================
 export const AccentColors = {
-  primary: PRIMARY,         // Pure blue - main brand color (#0000FF)
+  primary: PRIMARY,         // Pure blue - main brand color (#38BDF8)
   cyanGlow: '#00E5FF',      // Cyan glow - use sparingly for selected state/glow
   goldTier: '#E7C666',      // Gold tier - use ONLY for tier/premium highlights (crown, badges, featured)
   goldSoft: '#F5E8C7',      // Soft gold - lighter tint for subtle highlights (borders, backgrounds)
