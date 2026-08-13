@@ -21,8 +21,16 @@ Notifications.setNotificationHandler({
 });
 
 function getExpoProjectId(): string | undefined {
+  const fromEasConfig = Constants.easConfig?.projectId;
+  if (typeof fromEasConfig === 'string' && fromEasConfig.length > 0) {
+    return fromEasConfig;
+  }
   const extra = Constants.expoConfig?.extra ?? (Constants.manifest as { extra?: { eas?: { projectId?: string } } })?.extra;
-  return extra?.eas?.projectId;
+  const fromExtra = extra?.eas?.projectId;
+  if (typeof fromExtra === 'string' && fromExtra.length > 0) {
+    return fromExtra;
+  }
+  return undefined;
 }
 
 function platformLabel(): 'ios' | 'android' | 'web' | 'unknown' {
@@ -49,6 +57,7 @@ export async function registerForPushNotifications(userId: string): Promise<void
       finalStatus = status;
     }
     if (finalStatus !== 'granted') {
+      logger.info('[push] Permission not granted; skipping token registration', { status: finalStatus });
       return;
     }
 
@@ -61,13 +70,16 @@ export async function registerForPushNotifications(userId: string): Promise<void
 
     const projectId = getExpoProjectId();
     if (!projectId) {
-      if (__DEV__) logger.warn('[push] Missing EAS projectId in app config; cannot get Expo push token');
+      logger.warn('[push] Missing EAS projectId in app config; cannot get Expo push token');
       return;
     }
 
     const tokenRes = await Notifications.getExpoPushTokenAsync({ projectId });
     const pushToken = tokenRes.data;
-    if (!pushToken) return;
+    if (!pushToken) {
+      logger.warn('[push] getExpoPushTokenAsync returned an empty token');
+      return;
+    }
 
     const platform = platformLabel();
     const now = new Date().toISOString();
@@ -82,13 +94,16 @@ export async function registerForPushNotifications(userId: string): Promise<void
     );
 
     if (error) {
-      if (__DEV__) logger.warn('[push] upsert device_push_tokens failed', { err: error });
+      logger.warn('[push] upsert device_push_tokens failed', {
+        err: error.message,
+        code: error.code,
+      });
       return;
     }
 
     await AsyncStorage.setItem(STORED_PUSH_TOKEN_KEY, pushToken);
   } catch (err) {
-    if (__DEV__) logger.warn('[push] registerForPushNotifications', { err });
+    logger.warn('[push] registerForPushNotifications', { err });
   }
 }
 
@@ -111,12 +126,12 @@ export async function unregisterPushToken(): Promise<void> {
       .eq('user_id', userId)
       .eq('push_token', pushToken);
 
-    if (error && __DEV__) {
-      logger.warn('[push] unregister delete failed', { err: error });
+    if (error) {
+      logger.warn('[push] unregister delete failed', { err: error.message, code: error.code });
     }
     await AsyncStorage.removeItem(STORED_PUSH_TOKEN_KEY);
   } catch (err) {
-    if (__DEV__) logger.warn('[push] unregisterPushToken', { err });
+    logger.warn('[push] unregisterPushToken', { err });
   }
 }
 
