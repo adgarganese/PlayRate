@@ -1,328 +1,141 @@
-> ## STATUS AS OF 2026-05-07 EOD — READ BEFORE ANY OTHER SECTION
->
-> **The launch crash investigation is RESOLVED.**
->
-> - **Root cause:** dynamic `env[envKey]` access in `lib/config.ts` prevented `babel-preset-expo`'s `expoInlineEnvVars` plugin from inlining `EXPO_PUBLIC_*` values into the JS bundle. `lib/supabase.ts` threw "Missing Supabase configuration" at import time; `expo-updates` wrapped it as the `errorRecoveryQueue` SIGABRT we saw across all builds.
-> - **Fix:** commit `209e81d` rewrote `lib/config.ts` with static `process.env.EXPO_PUBLIC_NAME` accesses at every call site so Babel can inline.
-> - **Current state:** HEAD is `6ae38ef` on `main`, pushed to origin. Build 9 (`b79a5e46`, version 1.1.2) launches on iPhone 14 Pro. Production build 1.1.3 (28) (`fb162cce`) submitted to App Store Connect; processing in flight.
->
-> **DO NOT ACT ON SECTIONS 2, 7, OR 9 BELOW.** They document a wrong hypothesis (iOS 26.4.2 / Hermes PAC bug / `expo/expo#44356`) that was definitively disproven on 2026-05-05 by cross-device testing. The full resolved post-mortem lives at [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md) — read it for the actual root cause. Sections 2/7/9 are preserved temporarily as historical record only. Section 10 corrects parts of them but itself predates the root-cause finding and contains one drifted sub-claim about the Sentry slug — see the banner at the top of that section.
->
-> **Top of next-session list (in priority order):**
-> 1. ~~Draft the full post-mortem~~ — **DONE 2026-05-10.** See [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
-> 2. Full HANDOFF.md restructure: replace stale sections 2–5/7/9, fold in the post-mortem's lessons, drop the historical-record quarantine banners. The current banners are a bridge, not a final state.
-> 3. Add tester to TestFlight (after Apple processing email arrives at adgarganese@gmail.com).
-> 4. Sentry: confirm crash events flow to `playrate/react-native` dashboard from a real device crash. If not, native `AppDelegate.swift` Sentry init may be required for pre-JS coverage.
-> 5. Verify production `EXPO_PUBLIC_POSTHOG_API_KEY` (previously had a `--environment` suffix; cleaned during this session) lands clean in the next production build's bundle.
->
-> **DO-NOT-ASSUME guardrails (lessons from May 1–7):**
-> - EAS dashboard env present ≠ values inlined in the JS bundle. Always verify with bundle inspection.
-> - `EXPO_PUBLIC_*` must be statically referenced as `process.env.EXPO_PUBLIC_NAME` (literal member access) for Metro inlining. Dynamic indexing is silently invisible to Babel.
-> - Crash on `expo.controller.errorRecoveryQueue` is `expo-updates` rethrow — the actual JS error is logged via `os_log`, captured via Mac Console.app. Do not treat the rethrow stack as the root cause.
-> - Assistant memory is summary, not source of truth. Verify org slugs, branch state, CI enforcement, and any version/path claims against `git`/repo before acting.
->
-> **Bundle verification runbook (Windows):** Use ONE pattern per `Select-String -SimpleMatch` command. Pipe `|` in patterns is treated as a literal character with `-SimpleMatch`, not regex alternation — using `"a|b|c"` produces silent false negatives.
->
-> ---
-
 # PlayRate Handoff
 
 > Single source of truth for current project state. Updated at end of every working session. For tactical details (how a specific fix was implemented, what was tried), prompt Cursor — this doc is state, not history.
 
-_Last updated: 2026-05-02 (end of day)_
-_Current branch: main_
-_Current HEAD: `e54cfe8` — build: hard reset to 82f5170 (green build 3) + bump to build 7_
-_Recovery branch: `backup-before-reset-2026-05-02` at `0b13d28` (preserves recent JS work + push config; not pushed to origin)_
+_Last updated: 2026-08-19_
+_Branch: `main`_
+_Shipping binary: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`, `eas submit` succeeded 2026-08-17. Installability confirmed 2026-08-19 (device install + `device_push_tokens` row)._
+_Git: `1aa100d` (Expo.plist alignment, not in binary 29) plus this HANDOFF rewrite. Push both to origin; no EAS build._
+
+May 2026 launch-crash investigation is **closed**. Do not treat iOS 26 / Hermes PAC / `expo/expo#44356` as a current blocker. Full write-up: [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
+
+---
 
 ## 1. Project
 
 PlayRate — mobile social app for pickup and recreational athletes. Multi-sport infrastructure exists; basketball-first for beta.
 
-## 2. CRITICAL — READ BEFORE TOUCHING ANYTHING
+- **Repo:** [github.com/adgarganese/PlayRate](https://github.com/adgarganese/PlayRate)
+- **Bundle ID:** `com.playrate.app`
+- **App Store Connect:** app `6759843242` — TestFlight iOS: https://appstoreconnect.apple.com/apps/6759843242/testflight/ios
+- **EAS:** `@garganese/playrate` (`ce8747bd-f927-488b-b71b-9db2f74f1508`)
+- **Apple team:** `K6252RR6WP` (Andrew Garganese, Individual). Account: `adgarganese@gmail.com`
+- **Solo dev:** Andrew Garganese. Local: Windows, Cursor, PowerShell.
 
-> **🚫 SUPERSEDED — historical record only.** The "iOS 26.4.2 / Hermes PAC bug / `expo/expo#44356`" hypothesis in this section was disproven on 2026-05-05 — installing the same IPA on iPhone 16 Plus running iOS 26.3.1 reproduced an identical crash, refuting both the OS-version variable and the specific upstream issue. The actual root cause (dynamic env indexing in `lib/config.ts` preventing Babel inlining of `EXPO_PUBLIC_*` values) was identified on 2026-05-07. **For the resolved analysis, read [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).** This section is preserved as part of the investigation record and will be removed in the next HANDOFF restructure.
+## 2. Stack & environment
 
-**The app is currently blocked by a confirmed upstream Expo SDK 54 bug, not by anything in this repo.**
+- **Framework:** Expo SDK **~54.0.33**, committed **`ios/`** (EAS does **not** prebuild; `eas.json` has no prebuild override)
+- **Backend:** Supabase project `nhqhkwvmludnsblimjeu`
+- **Analytics:** PostHog (`EXPO_PUBLIC_POSTHOG_API_KEY` in EAS production/preview; prefix `phc_vamGj9VpDGcG`; no `--environment` suffix in the env value). **IPA bundle grep on 29 still pending.**
+- **Errors:** Sentry org **`playrate`**, project **`react-native`**. Slug settled in `63df4b3` (2026-05-07). DSN + `SENTRY_AUTH_TOKEN` in EAS. A **1.1.3 release exists** on the dashboard (source-map upload path healthy). No captured crash events observed as of 2026-08-12 (low tester traffic + short free-tier issue retention). That does **not** by itself prove JS `Sentry.init` ran on device. Native `AppDelegate.swift` init stays deferred until a real crash on 29 fails to appear.
+- **Domain:** playrate.io (Vercel). Password-reset bridge live at `https://playrate.io/password-reset.html` (`EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL` set in EAS).
+- **CI:** `.github/workflows/ci.yml` — `verify` (tsc/lint/test) then `eas-preview-build` on push to `main` **unless** the head commit message contains `[skip ci]`. That preview job spends an EAS credit and does **not** produce a TestFlight binary.
+- **Disabled:** `.github/workflows/prebuild-ios.yml` — do **not** re-enable. It once regenerated `ios/` from a stale baseline.
 
-Builds 4, 5, 6, and 7 (May 2 session) all crashed instantly on launch with identical signature: `EXC_CRASH/SIGABRT` on `expo.controller.errorRecoveryQueue`, NSException raised at ~780ms after launch, JS bridge never loads. Frame offsets in the main binary are byte-identical across all four builds (437152, 432456, 438300, 141716) despite each having different `ios/` contents.
+## 3. Current status (2026-08-19)
 
-**Build 7 (`e54cfe8`) is sourced from green build 3 (`82f5170`) byte-identical for tracked files** — only the build number was bumped from 3 to 7. It crashes the same way build 3 now crashes when reinstalled. Build 3 worked on April 30; the same binary fails on May 2.
+**Phase:** 1.1.4 (29) is installed on at least one device. Device push **registration works** (at least one `device_push_tokens` row after install + notification permission, 2026-08-19). End-to-end lock-screen delivery (Vault → Edge Function → Expo → device) is **waiting on a second-user DM test**. Do not collapse this into “push works” until that test confirms delivery.
 
-The variable that changed: **iPhone OS updated to 26.4.2 (build 23E261) between Apr 30 and May 2.**
+What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
-### Confirmed upstream bug
+- June 8: cosign modal + primary `#38BDF8`; push trigger reads Vault; onboarding polish; courts 2-up portrait grid
+- Aug 17: APNs entitlement (`aps-environment=production`), production push logging, `updated_at` on token upsert, `Constants.easConfig?.projectId` fallback
+- Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in the shipping binary**. It applies to future OTA and the next native build.
 
-This matches GitHub issue **expo/expo#44356** — "[SDK 54/55] Hermes crashes systematically on physical iOS 26 devices — PAC pointer authentication." Summary: ARM64 PAC enforcement was hardened in iOS 26.x; the Hermes JS engine bytecode shipped by SDK 54/55 fails PAC validation, so apps crash at launch on physical iOS 26 devices. Simulators are unaffected. Dev client builds work (Hermes runs interpreted).
+**Push plumbing**
 
-Related issues with similar fingerprints:
-- expo/expo#41824 (iOS launch crash, same SDK 54, expo-notifications, no code changes between working and broken builds)
-- expo/expo#44680 (production builds crash, dev builds work; SIGABRT variant on RN 0.85)
+- Server: `trigger_push_on_notification()` reads Vault secrets `supabase_functions_url` and `service_role_key` (both present). Applied via SQL Editor (CLI `db push` needs Docker).
+- Schema: `device_push_tokens` has `updated_at` (added 2026-08-12 via SQL Editor; was missing vs migration `20260414121100` — that drift caused silent upsert failures on 28).
+- Client: empty entitlements on 28 meant `getExpoPushTokenAsync` could not register. Fixed in `4e81857`. Failures now `logger.warn` → Sentry `captureMessage` in production (`lib/logger.ts` verified 2026-08-17: `warn` → `captureMessage`, `info` → `addBreadcrumb`; not `__DEV__`-guarded).
+- Signing: first 29 attempt (`397db901`) failed because App Store profile `VKTPMNRFBN` / `*[expo] com.playrate.app AppStore 2026-03-01…` lacked Push. Interactive rebuild (`9cb81478`) minted a new profile after Apple login. Dist cert `63DAEE2A…` (expires 2027-03-01) was kept.
 
-### What this means for this project
+**EAS production/preview env present:** `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_POSTHOG_API_KEY`, `EXPO_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL`.
 
-- **Do NOT spend EAS build credits trying to fix this in code.** It is not in our code.
-- Today's session burned 4 build credits (4, 5, 6, 7) before this was confirmed.
-- Until upstream fixes ship, the only paths to a working app on iOS 26.x physical hardware are: (a) dev client (requires Mac), (b) wait for Hermes/RN/Expo patch, (c) test on a device running iOS 25.x or pre-26.4 iOS 26.
+**EAS env not set:** `EXPO_PUBLIC_UNIVERSAL_LINK_HOST`, `EXPO_PUBLIC_SENTRY_ENVIRONMENT`, `EXPO_PUBLIC_FEEDBACK_FORM_URL`, `EXPO_PUBLIC_SUPPORT_EMAIL`, `EXPO_PUBLIC_TERMS_URL`, Google Maps/Places keys. None blocked 29.
 
-## 3. Stack & environment
+**Beta flags** (`constants/features.ts`): `FEATURE_PHONE_AUTH = false`, `SOCCER_ENABLED = false`, `BETA_HIDE_LEADERBOARD = true`. Android is postponed (iOS-first).
 
-- **Framework:** Expo (React Native) SDK **~54.0.33** (`expo` in `package.json`)
-- **Backend:** Supabase (project ref `nhqhkwvmludnsblimjeu`)
-- **Analytics:** PostHog
-- **Error monitoring:** Sentry (`@sentry/react-native` ~7.2.0) — config plugin in `app.json`; "first event" Sentry slug mismatch was noted earlier and never resolved (deferred)
-- **Repo:** [github.com/adgarganese/PlayRate](https://github.com/adgarganese/PlayRate), branch `main`
-- **Domain:** playrate.io (Vercel)
-- **Local dev:** Windows, Cursor IDE, PowerShell
-- **Solo dev:** Andrew Garganese
-- **iOS native:** **Committed `ios/` directory** (NOT managed prebuild — see Section 6)
-- **CI:** `.github/workflows/ci.yml` — verify (tsc/lint/test) → eas-preview-build (queued via `eas build --platform ios --profile preview`). Concurrency cancels in-progress earlier slots.
-- **Disabled CI workflow:** `.github/workflows/prebuild-ios.yml` — DISABLED in GitHub UI on May 2. Do not re-enable without first understanding why (see Section 6).
-- **Current version on main:** **1.1.2** (marketing), iOS build **7**, Android `versionCode` **7** — but this binary crashes on iOS 26.4.2.
+**Product baseline (do not revert without instruction):**
 
-## 4. Current status
+- Primary `#38BDF8` — intentional June 8 swap. Contrast on light backgrounds is an eyeball item on 29 (Section 4), not a blanket ban on per-spot token tweaks if text is unreadable.
+- Courts browse is 2-up photo cards; sports chips and inline Following were dropped from the grid card on purpose (still on detail).
+- Onboarding done screen uses `star.fill` because `basketball.fill` is not in the `IconSymbol` mapping. Swap when that mapping expands.
 
-- **Phase:** Beta launch BLOCKED on upstream Expo bug (issue #44356).
-- **Current main HEAD `e54cfe8`:** Source code is byte-identical to green build 3 (`82f5170`) for all tracked files except build numbers (bumped to 7). Crashes on iOS 26.4.2 due to upstream PAC issue.
-- **Recovery branch `backup-before-reset-2026-05-02` at `0b13d28`:** Preserves all post-`82f5170` JS work (cosign UI in `7b62f00`, scroll padding hook in `a10f29f`, modal cleanup in `5793341`) plus the push notification entitlement (`aps-environment=development`) and the URL scheme/Face ID Info.plist additions made today. NOT pushed to origin. To restore: `git checkout backup-before-reset-2026-05-02` then merge/cherry-pick into main.
-- **Test device:** iPhone 14 Pro (`iPhone15,2`) running iOS 26.4.2 (`23E261`). Cannot be used to validate any preview build until upstream fix lands.
-- **Apple Developer / EAS credentials:** Push Notifications capability enabled on App ID `com.playrate.app` (done May 1); Ad Hoc provisioning profile regenerated to include push entitlement. This work is preserved server-side and survives any code change. Re-applies on next push-capable build.
+## 4. Open work
 
-## 5. Open work
+**Now / this week**
 
-### Blocking (cannot proceed in app code)
+1. Push `1aa100d` + this HANDOFF commit (`[skip ci]`). No EAS build required. Do this first — unpushed local commits are a single point of failure.
+2. Confirm lock-screen push via a DM between two accounts (registration already proven). If delivery fails: Sentry `[push] …` warnings on the **recipient** device first; Mac Console.app if Sentry is silent.
+3. PostHog IPA grep on 29: one `Select-String -SimpleMatch` per pattern; confirm `phc_vamGj9VpDGcG` present and `--environment` absent.
 
-- **Upstream Expo SDK 54 + iOS 26 incompatibility (issue #44356).** Watch for: Hermes patch landing in RN, RN patch landing in Expo SDK 54.0.x, or Expo SDK 55 GA with the fix. Subscribe to the GitHub issues to get notified.
+**Soon, no build required unless noted**
 
-### Decisions to make next session (free, no builds required)
+- Universal links / AASA (`EXPO_PUBLIC_UNIVERSAL_LINK_HOST` unset; shares use `playrate://`).
+- Create-highlight keyboard covering caption (`KeyboardAvoidingView` / `KeyboardScreen` never added).
+- Home initial-load hang if one of three requests never resolves (timeout recommended, not implemented).
+- Home → highlight detail back navigation (may skip Highlights tab). Unverified on 29.
+- Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds.
+- `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production` in EAS (trivial, next build).
+- `schema_migrations` ledger drift (prod applied more migrations than the first-5 ledger). Post-beta.
 
-1. **Restore JS work to main, OR keep main at e54cfe8.** Recovery branch `backup-before-reset-2026-05-02` (`0b13d28`) has the recent UI work. We can cherry-pick those commits onto `e54cfe8` so when the upstream fix lands, the app has the latest JS. Do NOT cherry-pick + push + build — that wastes credits while bug persists. Cherry-pick + commit only.
-2. **Sentry first-event mismatch (deferred from earlier sessions).** Config plugin is `@sentry/react-native/expo` with org/project both `playrate`. "First event" never received. Investigation deferred until app launches at all.
-3. **Decide on a non-iOS-26.4.2 testing path.** Options: friend's phone on older iOS, iPad simulator on a Mac, dev client build (requires Mac access), or wait. Each has tradeoffs.
+**Deferred (design or dedicated session)**
 
-### Post-fix work (do not start until app launches successfully on device)
+- Achievement / streak / King of the Court badges — integrate with Bronze→Diamond rep, not a parallel system.
+- `IconSymbol` mapping: `basketball.fill` / `figure.basketball` (then swap onboarding done icon).
+- Phone auth, soccer UI, court leaderboard (flags).
+- Android: Maps/Places keys, notification icon, Play Internal Testing, CI Android.
+- Squads / coach-scout badges.
+- Native Sentry `AppDelegate.swift` init — only if a crash on 29 never appears in `playrate/react-native`.
+- Face ID: not in current `Info.plist` or app code. Needs `NSFaceIDUsageDescription` if ever added.
 
-- **Push verification (was the headline test we never reached today):** Token registration into `device_push_tokens`, `send-push-notification` Edge Function path producing a real notification on device.
-- **Device UI smoke test:** Tabbed scroll, create-highlight bottom clearance, cosign card + modal, RNCSlider rating sliders.
-- **Create-highlight keyboard handling:** If caption stays hidden under keyboard, add `KeyboardAvoidingView`. Was queued as the next "build 6 after build 5 verifies" task; never reached.
-- **Universal links / AASA on playrate.io.**
+## 5. Working preferences and traps
 
-## 6. Working preferences and traps
+**Credits:** Spend them when it ships something. Stay efficient — one intentional production build, not CI preview + production. `[skip ci]` on commits that should not queue `eas-preview-build`.
 
-### Build credit conservation (HARD RULE)
+**`--non-interactive` after entitlement changes:** Never pass `--non-interactive` on the first production build after entitlements change. It skips Apple auth and reuses a stale App Store profile (this caused `397db901` — profile lacked Push / `aps-environment`).
 
-- Never push to `main` while the upstream bug is unresolved. CI auto-queues `eas-preview-build` on push to main, which spends a credit. Local commits encouraged.
-- When credits are required: run `npx tsc --noEmit && npm run lint` locally first.
-- One credit per intentional change. Bundle multiple fixes into one build when possible.
+**Production iOS build:** `npx eas build --platform ios --profile production` from a **standalone PowerShell** (not Cursor’s terminal) when Apple login / 2FA / profile prompts are needed. If signing failed and the binary **never reached App Store Connect**, retry that **same git SHA** — do not invent a new commit or bump 1.1.5 just to rebuild.
 
-### iOS native strategy (HARD-WON LESSON FROM TODAY)
+**After a green production build:** `npx eas submit --platform ios --profile production --latest`. Internal testers install after Apple processing; **external** testers wait on beta review for a **new marketing version**. `ITSAppUsesNonExemptEncryption` is `false` in committed `ios/PlayRate/Info.plist` (verified 2026-08-17).
 
-- The repo uses **committed `ios/`**. EAS uses it as-is and does NOT run `expo prebuild` (no override in `eas.json`).
-- The `prebuild-ios.yml` workflow is DISABLED in GitHub UI. It was the cause of commit `301c066` ("chore: add ios from prebuild [skip ci]") which silently regenerated `ios/` from a stale baseline that lost `ENABLE_USER_SCRIPT_SANDBOXING`, `MARKETING_VERSION 1.1.2`, and `CURRENT_PROJECT_VERSION 3`. This created a Frankenstein `ios/` and was a major source of confusion in the May 2 session before we identified it.
-- DO NOT re-enable `prebuild-ios.yml` without first auditing why its prebuild output drifted from intended config. The workflow is not deleted; it lives in the repo for reference.
-- When adding a native module locally: run `npx expo prebuild --platform ios` yourself, eyeball the diff, commit the `ios/` changes manually.
+**Apple agreements:** If EAS says it failed to register `com.playrate.app` and mentions the Developer Program License Agreement, the Account Holder must accept it at https://developer.apple.com/account **before** retrying. EU DSA trader status is App Store Connect compliance; TestFlight can often proceed after the license agreement alone.
 
-### Build version SOP (committed `ios/` flavor)
+**Entitlements vs profiles:** Committed `ios/PlayRate/PlayRate.entitlements` is what EAS signs. Empty `<dict/>` ships with no Push. After adding `aps-environment`, **do not reuse** an old App Store profile (e.g. `VKTPMNRFBN` / `AppStore 2026-03-01`). Generate a new one. Do **not** churn a still-valid distribution certificate.
 
-When bumping for a new build, edit ALL of these in one commit:
+**Committed `ios/`:** When adding a native module: `npx expo prebuild --platform ios` locally, review the diff, commit `ios/` by hand. Keep `app.json` `ios.entitlements` / `infoPlist` in sync so a future prebuild does not drop Push. Do not re-enable `prebuild-ios.yml`.
+
+**`EXPO_PUBLIC_*` inlining:** Must be static `process.env.EXPO_PUBLIC_NAME`. Dynamic `env[key]` is invisible to Babel and caused the May launch crash. EAS env present ≠ value in the JS bundle — verify with IPA grep when it matters.
+
+**`resolveMediaUrlForPlayback`:** Calls `createSignedUrl` per URL. Safe on detail screens; **not** on browse lists (N+1). Courts grid uses `getPublicUrl` only.
+
+**Windows `Select-String -SimpleMatch`:** One pattern per command. `|` is a literal, not alternation.
+
+**Memory vs disk:** Assistant memory is summary. Trust this file + `git` / dashboards over memory. Claude should fetch `https://raw.githubusercontent.com/adgarganese/PlayRate/main/docs/HANDOFF.md` once this commit is on origin.
+
+**Migrations:** Prefer Supabase SQL Editor when Docker is not running. Do not edit already-applied migration files.
+
+**Dev-client push:** Hardcoded `aps-environment=production` is for TestFlight/App Store. Dev-client APNs sandbox push is not supported until that is revisited.
+
+## 6. Build version SOP (committed `ios/`)
+
+When bumping for a new binary, in **one** commit (usually `chore(release): … [skip ci]`):
+
 - `app.json` — `expo.version`, `expo.runtimeVersion` (when marketing/runtime changes), `expo.ios.buildNumber`, `expo.android.versionCode`
-- `ios/PlayRate/Info.plist` — `CFBundleVersion` (must match `app.json` ios.buildNumber)
-- `ios/PlayRate.xcodeproj/project.pbxproj` — both `CURRENT_PROJECT_VERSION` lines in target build configs `13B07F94` (Debug) and `13B07F95` (Release); leave project-level `83CBBA20`/`83CBBA21` untouched
-- Leave `package.json` / `package-lock.json` at marketing version
-- Leave `lib/feedback.ts` and `lib/sentry.ts` string fallbacks aligned with marketing version
+- `ios/PlayRate/Info.plist` — `CFBundleShortVersionString`, `CFBundleVersion` (build number)
+- `ios/PlayRate.xcodeproj/project.pbxproj` — `CURRENT_PROJECT_VERSION` and `MARKETING_VERSION` in target Debug + Release (`13B07F94`, `13B07F95`) only
+- `ios/PlayRate/Supporting/Expo.plist` — `EXUpdatesRuntimeVersion` (missed on the 1.1.4 bump; fixed in `1aa100d` — **not in binary 29**)
+- `package.json` + `package-lock.json` root / `packages[""]` marketing version
+- `lib/feedback.ts` and `lib/sentry.ts` fallback strings
 
-### Session opener pattern
+Reuse the same marketing/build numbers if that build **never reached App Store Connect** (failed EAS/signing). Bump if ASC already accepted that build number.
 
-- Each session starts in a new chat (cold start).
-- This file + Claude memory are source of truth. First message typically pastes or references this handoff.
-- Claude should `web_fetch` `https://raw.githubusercontent.com/adgarganese/PlayRate/main/docs/HANDOFF.md` before answering.
-- **Trust the handoff over Claude's prior memory** when they disagree. Memory snapshots can lag behind handoff updates by a session or more.
+**`runtimeVersion` vs reuse:** Bump `expo.runtimeVersion` **and** `Expo.plist` `EXUpdatesRuntimeVersion` together when native code or native config changes (entitlements, Info.plist, native modules). Reuse the current runtime when only JS/assets change so EAS Update can still target existing installs. Mismatched `app.json` vs `Expo.plist` runtimes will make OTA refuse to apply.
 
-## 7. May 2 session — what was tried, what we know, what we burned
+## 7. Session opener
 
-> **🚫 SUPERSEDED — historical record only.** The hypothesis-elimination table below was logically valid in form, but every "ruled out" conclusion is misattributed: none of these tests actually disprove the eventual root cause. Tests #4 and #5 (restoring `ios/` from baseline and hard-resetting to `82f5170`) preserved the broken JS bundle while varying native config, so the negative results isolated nothing. Test #6 (reinstalling build 3) was interpreted as confirming "phone OS is the variable" but the broken bundle was the same in both runs. **See [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md) — Wrong Paths and Appendix B for the corrected interpretation.**
+1. Read this file (from origin once pushed).
+2. `git status` / `git log -5 --oneline` — do not assume HEAD from memory.
+3. Open work is Section 4. Do not revive quarantined May hypotheses.
 
-This section exists so tomorrow's session does not repeat any of these.
-
-### Hypotheses tested (and ruled out)
-
-| # | Hypothesis | How tested | Result |
-|---|---|---|---|
-| 1 | Provisioning / push entitlement | Build 4 with new push-capable Ad Hoc profile | Crashed; signing was correct |
-| 2 | expo-updates init | Build 5: disabled updates in `app.json` | Crashed identically |
-| 3 | Sentry plugin | Build 5: removed `@sentry/react-native/expo` plugin | Crashed identically |
-| 4 | Stale `ios/` from prebuild bot (`301c066`) | Build 6: restored `ios/` from `82f5170` + bumped + added push entitlement | Crashed identically; same frame offsets |
-| 5 | Any post-`82f5170` regression in repo | Build 7: hard reset to `82f5170` for ALL tracked files, build numbers bumped to 7 only | Crashed identically; **same source as green build 3** |
-| 6 | Phone-side change | Reinstalled the actual build 3 IPA from Expo dashboard | Crashed identically — confirmed phone OS is the variable |
-
-### Build credits spent today: 4
-
-### Key data points
-
-- Build 3 fingerprint: `2950963` (Apr 30)
-- Build 7 fingerprint: `c09f3e4` (May 2, identical source) — different fingerprint = EAS toolchain shifted between builds, but this is secondary; the dominant variable is iOS 26.4.2 PAC enforcement.
-- Phone: iPhone 14 Pro (`iPhone15,2`), iOS 26.4.2 (build `23E261`).
-- Crash queue every time: `expo.controller.errorRecoveryQueue`.
-- Crash always at ~780ms after `procLaunch`.
-
-### Files/branches that exist as a result of today
-
-- Branch `backup-before-reset-2026-05-02` at `0b13d28` — preserves recent JS work; not on origin.
-- Untracked files in working tree: `ios-diff.txt`, `ios-final-diff.txt` (diagnostic dumps; can be deleted).
-- GitHub workflow `prebuild-ios.yml` — disabled in UI, file still in repo.
-
-## 8. Verification before completing this handoff
-
-1. ✅ HEAD on main is `e54cfe8` (`git log -1 --oneline`)
-2. ✅ Recovery branch `backup-before-reset-2026-05-02` exists at `0b13d28` (`git branch -v`)
-3. ✅ Working tree clean of code changes (`git status` — only ios-diff.txt / ios-final-diff.txt untracked)
-4. ✅ `app.json` ios.buildNumber = "7", android.versionCode = 7
-5. ✅ `ios/PlayRate/Info.plist` CFBundleVersion = 7
-6. ✅ `ios/PlayRate.xcodeproj/project.pbxproj` CURRENT_PROJECT_VERSION = 7 in target Debug + Release
-7. ✅ `prebuild-ios.yml` workflow disabled in GitHub UI
-
-## 9. Beta-quality scope and launch decision tree (added 2026-05-02 EOD)
-
-> **🚫 SUPERSEDED — historical record only.** The decision tree below is built on the disproven upstream-bug premise. Path A (wait for upstream fix) was the operative recommendation; the actual fix was a code-side change to `lib/config.ts` shipped on May 7 (commit `209e81d`). Build 9 launched cleanly on iPhone 14 Pro on iOS 26.4.2 — the OS version was never the variable. The framing here (cross-device testing as a free experiment, build-credit conservation as a hard rule) generalizes and is folded into the post-mortem's Verification Ladder; the specific A/B/C/D paths are no longer relevant. **See [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).**
-
-### What "beta-ready" actually means for this project
-
-The user defined beta-ready as build 3 plus three remaining UI fixes:
-1. Slider works on user + court rating screens (RNCSlider unimplemented error)
-2. Cosign button larger + right-aligned on cosign skill card
-3. Create-highlight page scrolls to bottom (content clears floating tab bar)
-
-**All three of these are already implemented.** They live in commits on the recovery branch `backup-before-reset-2026-05-02`:
-- Cosign UI: `7b62f00` (feat(ui): larger and right-aligned cosign button on athlete profile cards)
-- Scroll padding: `a10f29f` (fix(ui): create-highlight scroll padding clears the floating tab bar)
-- Slider: native module + JS wiring; native side validated by green build 3 era; not yet tested on a working IPA because every build since has crashed on iOS 26.4.2
-
-The code is at beta quality. The blocker is purely the iOS 26.4.2 PAC issue (section 2).
-
-### Launch path decision tree
-
-The user's hard constraints (confirmed 2026-05-02 EOD):
-- Test device: iPhone 14 Pro on iOS 26.4.2 (cannot run any current build)
-- No alternate iPhone available
-- No other iOS device (no spare iPhone, no iPad)
-- No Mac available locally
-
-Given those constraints, tomorrow has four real paths:
-
-**Path A — Wait for upstream fix.** Hermes/RN/Expo patches issue #44356. Realistic timeline: days to weeks. Pure waiting; zero work; zero credits. The upstream fix arrives, then bump SDK, bump build, build, install, ship.
-
-**Path B — Ship to TestFlight knowing builds crash on iOS 26.4+.** TestFlight accepts binaries even if they crash on launch. Submission requires EAS production profile (different cert from preview Ad Hoc) + App Store Connect app record. Cost: 1 production build credit + setup time. Outcome: app exists on TestFlight; testers on iOS 26.3 or earlier can install and run; testers on iOS 26.4+ cannot. Requires the user's tester pool to skew older iOS. When upstream fix lands, push update to existing testers.
-
-**Path C — Try Expo SDK Canary.** Issue #44680 mentions canary builds being tested for the PAC fix. Upgrade SDK to canary, rebuild. Risk: canary has its own potential bugs. Cost: hours of upgrade work + 1 build credit. Possible outcome: working build on iOS 26.4.2. No guarantee fix has actually shipped in canary yet — verify before upgrading.
-
-**Path D — Borrow a Mac for a dev client build.** Issue #44680 confirms dev client builds work on iOS 26 because Hermes runs interpreted (no PAC issue). Requires Mac access for a few hours. Outcome: app runs on user's iPhone for personal testing. Does NOT get to TestFlight. Useful for demoing or validating the JS work on device while waiting for upstream fix.
-
-### Recommended pre-decision actions (free, no builds, do FIRST)
-
-1. **Comment on expo/expo#44356 with your specific crash details** — iPhone 14 Pro / iOS 26.4.2 (build 23E261) / SDK 54.0.33 / paste the crash log signature. Adds a data point for upstream maintainers; helps prioritize the fix.
-2. **Check issue #44356 + #44680 + #41824 for activity in the last 48 hours** — comments, linked PRs, canary releases, recommended workarounds. The situation evolves.
-3. **THEN decide between A/B/C/D** based on what you find.
-
-### What this means for the next session opener
-
-When tomorrow's session starts, before doing anything else:
-- web_fetch this handoff
-- Check the three GitHub issues for upstream fix progress
-- Ask the user which path (A/B/C/D) they want, or whether the upstream picture has changed
-- Do NOT propose code changes or builds until path is chosen
-- If user picks B (TestFlight despite crash): step 1 is cherry-picking the three UI fixes from `backup-before-reset-2026-05-02` onto main as local commits, then setting up EAS production profile + App Store Connect
-
-### Hard rules carried into next session
-
-- No `git push origin main` without `[skip ci]` in the commit message until the upstream bug is resolved. Every push without `[skip ci]` runs `ci.yml` which queues an EAS build (~1 credit).
-- No EAS builds at all until the user picks a path.
-- The recovery branch `backup-before-reset-2026-05-02` is the source of beta-quality JS. Don't lose it.
-## 10. May 3 session — corrections to prior sections + today's findings
-
-> **⚠️ PARTIALLY CORRECT — predates root-cause finding.** Three corrections here are right and important: the recovery branch was empty (Correction 1), the crash fingerprint did not match #44356 PAC (Correction 2), and no "Apple dev logout" happened (Correction 3). One sub-claim under "Updated open work" is itself drifted: it says "actual Sentry project is `garganese/react-native`" — the org is `playrate`, only the project name was wrong in committed config (was `playrate`, should have been `react-native`). The "single experiment never run" callout was correct and was the experiment that ran on 2026-05-05; it disproved the OS-version hypothesis without surfacing the real cause. **The full resolved root cause is in [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).**
-
-### What today established
-
-This section supersedes earlier sections where they conflict. Earlier sections preserved as historical record.
-
-#### Correction 1 — Recovery branch has NOTHING unique on it
-
-Section 4 and Section 9 both claim `backup-before-reset-2026-05-02` (`0b13d28`) preserves JS work that needs to be cherry-picked back onto main. **This is false.** Verified today via `git log --all --oneline --graph`: the history is a single linear chain, no fork. Every commit on the recovery branch is also reachable from main HEAD. The hard reset at `e54cfe8` reset file *contents* to match `82f5170` but main's git history still descends from the slider/UI/blob work.
-
-Specifically, current main `496fdc2` already contains in its tracked files:
-- Slider rating UI (`cad7eab` — verified today: `git merge-base --is-ancestor cad7eab HEAD` returns 0)
-- Cosign UI (`7b62f00`)
-- Scroll padding fix (`a10f29f`)
-- Modal cleanup (`5793341`)
-- DismissKeyboardView (`aed6217`)
-- Auth routing fix (`3744b87`)
-- RN blob upload bug fix + onboarding deep-link (`65a2de1`)
-- Slider component file present in tree at `e54cfe8`
-
-**Action implication:** No cherry-pick needed. The "Decisions to make next session #1" item in Section 5 is already done — the JS work is on main. Sections 4 and 9 should be read with this correction.
-
-#### Correction 2 — Crash signature does NOT match #44356 PAC fingerprint
-
-Section 2 confidently identifies the blocker as expo/expo#44356 (Hermes PAC pointer authentication). Detailed fingerprint analysis today showed otherwise:
-
-- #44356 fingerprint: `EXC_BAD_ACCESS` / `KERN_PROTECTION_FAILURE`, faulting thread `com.facebook.react.runtime.JavaScript`, frames inside `hermesvm` (`HiddenClass::findProperty`, `JSObject::getNamedDescriptorUnsafe`).
-- Actual crash fingerprint (verified across builds 4 May 1 / build 4 May 2 / build 6 May 2, byte-identical offsets `437152, 432456, 438300, 141716`): `EXC_CRASH` / `SIGABRT`, `abort() called`, faulting thread is GCD queue `expo.controller.errorRecoveryQueue`, **zero hermesvm frames in the stack**, `lastExceptionBacktrace` shows `__exceptionPreprocess` → `objc_exception_throw` → 4 frames in PlayRate binary → `_dispatch_call_block_and_release`.
-
-This is an NSException raised on a GCD queue with no Obj-C handler, causing `std::terminate` → `abort()`. Per Expo's error-recovery docs, this is the documented re-throw path expo-updates uses when an early-startup JS fatal can't be recovered from. The actual error is upstream of expo-updates, not the PAC bug.
-
-The May 2 narrative ("upstream Expo SDK 54 + iOS 26.4.2 PAC bug") is partially right and partially wrong:
-- **Right:** the variable is the iOS update on the test device (Section 7 hypothesis 6 — build 3 IPA reinstall — is solid evidence).
-- **Wrong:** the specific upstream issue is not #44356. The actual upstream issue (if there is one) is unidentified.
-
-#### Correction 3 — "Apple dev logout" never happened
-
-A concern surfaced this session: did a prior AI session have the user log out of Apple Developer / sign out of an account / tear down credentials? Comprehensive Cursor transcript extraction across all `agent-transcripts/*.jsonl` for Apr 28 – May 3 surfaced **no logout instruction**. Closest matches were routine: deleting a cached Ad Hoc provisioning profile via `eas-cli credentials` so EAS could mint a push-capable replacement, and enabling Push Notifications on App ID `com.playrate.app` in Apple Developer portal. **Nothing was torn down. User is not locked out of any service.**
-
-#### Correction 4 — Path C ("SDK canary") has no evidence of containing a PAC fix
-
-Section 9 Path C suggests trying SDK canary as a possible workaround. Searches today across expo/expo#44356, #44680, #44606, and related Hermes issues found no canary release that contains a confirmed PAC fix or NSException-on-errorRecoveryQueue fix. Spending a credit on canary is gambling, not high-confidence experimentation. **Path C should not be pursued without a specific canary release containing a documented fix for the actual fingerprint.**
-
-### Today's cost
-
-- 0 build credits spent.
-- ~6 hours diagnostic investigation, much of it duplicative of May 2 work.
-- Lesson learned: pull Cursor agent transcripts FIRST when picking up a multi-session bug. Today's correct insights came from `STREAM_d8b5c305_plain.txt` and `STREAM_d166269c_plain.txt` (extracted via Cursor agent into `agent-tools/`), which would have collapsed hours of speculation into minutes.
-
-### The single experiment that has NEVER been run
-
-May 2 ruled out every reasonable code-side hypothesis. **One free experiment remains untried:** install the build 7 IPA (already paid for, lives on EAS dashboard 88 days) on **any iPhone NOT running iOS 26.4.2**. Friend, family, old device in a drawer. Outcomes:
-- **Launches successfully** → confirms phone OS is the variable. Path A (wait for upstream) is correct strategy. Document iOS version at which app starts working; that's tester eligibility for Path B.
-- **Crashes identically** → bug is more specific than "iOS 26.4.2 broke it." Reopen investigation.
-- **Crashes differently** → new fingerprint to investigate.
-
-This is the highest-value next action available, free, requires only physical access to one non-26.4.2 iPhone.
-
-### Tooling installed this session
-
-- Python 3.12.10 via `winget install Python.Python.3.12` (location: `C:\Users\burto\AppData\Local\Programs\Python\Python312\python.exe`). Microsoft Store alias intercepts `python` on PATH; use the full path directly or `Set-Alias -Name python -Value <path>` per session.
-- `pymobiledevice3` 9.12.0 via `python -m pip install`. Cannot run on this Windows machine without Apple Mobile Device Service (ships with iTunes / Apple Devices app); not installed. Tool is available if Apple Devices is installed in a future session.
-
-### Updated open work for next session
-
-Section 5 "Decisions to make next session" is partially superseded:
-
-1. ~~Restore JS work to main~~ → **Already done; nothing to restore. Skip this item.**
-2. **Sentry first-event mismatch** — config plugin says `org=playrate, project=playrate`; actual Sentry project is `garganese/react-native`. Free fix; defer until app launches at all so we can validate events flow.
-3. **Non-iOS-26.4.2 testing path** — promoted to PRIMARY action. See "single experiment never run" above.
-
-Post-fix work in Section 5 unchanged.
-
-### Hard rules carried forward (unchanged)
-
-- No `git push origin main` without `[skip ci]` until upstream bug resolves.
-- No EAS builds.
-- Do not re-enable `prebuild-ios.yml`.
-- Pull Cursor agent transcripts at start of any session that is picking up a multi-day bug.
-
-### Verification before completing this handoff (May 3)
-
-1. HEAD on main is `496fdc2` (was `e54cfe8` on May 2 — three docs-only commits since)
-2. Working tree clean (`git status` shows no untracked or modified files)
-3. Slider commit `cad7eab` is reachable from HEAD (`git merge-base --is-ancestor cad7eab HEAD` exits 0)
-4. No code changes today; this is a docs-only update
-5. No build credits spent today
-
+Trust this handoff over stale chat memory when they disagree.
