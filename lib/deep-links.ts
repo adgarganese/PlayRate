@@ -73,11 +73,11 @@ export function resolveAppPathFromInboundLink(url: string): string | null {
 
   const [first, second, third] = segments;
 
-  if (first === 'highlights' && second) {
-    return `/highlights/${second}`;
+  if ((first === 'highlights' || first === 'highlight') && second) {
+    return `/highlight/${second}`;
   }
   if (first === 'profile' && second === 'highlights' && third) {
-    return `/highlights/${third}`;
+    return `/highlight/${third}`;
   }
   if (first === 'courts' && second === 'run' && third) {
     return `/courts/run/${third}`;

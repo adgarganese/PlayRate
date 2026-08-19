@@ -42,7 +42,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 - Aug 17: APNs entitlement (`aps-environment=production`), production push logging, `updated_at` on token upsert, `Constants.easConfig?.projectId` fallback
 - Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in the shipping binary**. It applies to future OTA and the next native build.
 
-**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever.
+**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever. Highlight detail is a root-stack overlay at `/highlight/[id]` so Back/swipe returns to Home (or whoever opened it) instead of dumping you on the Highlights tab. Share URLs stay `playrate://highlights/{id}`.
 
 **Push plumbing**
 
@@ -73,7 +73,6 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 **Soon, no build required unless noted**
 
 - Universal links / AASA (`EXPO_PUBLIC_UNIVERSAL_LINK_HOST` unset; shares use `playrate://`).
-- Home → highlight detail back navigation (may skip Highlights tab). Unverified on 29.
 - Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds.
 - `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production` in EAS (trivial, next build).
 - `schema_migrations` ledger drift (prod applied more migrations than the first-5 ledger). Post-beta.

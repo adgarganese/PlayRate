@@ -154,7 +154,7 @@ function pushNotificationDeepLinkTarget(raw: Record<string, unknown>): string | 
     type === 'highlight_repost' ||
     type === 'repost'
   ) {
-    return entityId ? `/highlights/${entityId}` : null;
+    return entityId ? `/highlight/${entityId}` : null;
   }
   if (type === 'new_message') {
     return entityId ? `/chat/${entityId}` : null;
@@ -200,7 +200,7 @@ function navigateFromNotificationData(router: ExpoRouterLike, raw: Record<string
     type === 'highlight_repost' ||
     type === 'repost'
   ) {
-    if (entityId) router.push(`/highlights/${entityId}` as any);
+    if (entityId) router.push(`/highlight/${entityId}` as any);
     return;
   }
 

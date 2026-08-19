@@ -6,7 +6,7 @@ This document describes how inbound links are handled, what share URLs the app g
 
 - **Expo config:** `app.json` sets `"scheme": "playrate"` (see `expo.scheme`). That registers the native URL scheme so `playrate://…` opens the app.
 - **Handler:** `app/_layout.tsx` subscribes to `Linking.addEventListener('url', …)` and `Linking.getInitialURL()` (cold start). Auth and password-reset URLs are handled first; then **app content** links are resolved with `lib/deep-links.ts` (`isInboundAppContentLink`, `resolveAppPathFromInboundLink`).
-- **Expo Router:** The app does **not** rely on Expo Router alone to map arbitrary URLs to screens. File-based routes exist (e.g. `app/(tabs)/highlights/[highlightId]/index.tsx` → `/highlights/:highlightId`), but the **root custom handler** normalizes both `playrate://` and allowed `https://` hosts and calls `router.replace` / `router.push` so behavior is explicit and matches legacy path shapes.
+- **Expo Router:** The app does **not** rely on Expo Router alone to map arbitrary URLs to screens. File-based routes exist (e.g. `app/highlight/[highlightId]/index.tsx` → `/highlight/:highlightId`), but the **root custom handler** normalizes both `playrate://` and allowed `https://` hosts and calls `router.replace` / `router.push` so behavior is explicit and matches legacy path shapes.
 
 ## Universal links (`https://`)
 
@@ -40,8 +40,8 @@ All of the following resolve after optional leading slash. Query strings and fra
 
 | Pattern | Opens (Expo path) | Custom scheme | HTTPS (trusted hosts) |
 |--------|-------------------|---------------|------------------------|
-| `highlights/{id}` | `/highlights/{id}` | Yes | Yes |
-| `profile/highlights/{id}` (legacy) | `/highlights/{id}` | Yes | Yes |
+| `highlights/{id}` | `/highlight/{id}` | Yes | Yes |
+| `profile/highlights/{id}` (legacy) | `/highlight/{id}` | Yes | Yes |
 | `courts/{courtId}` | `/courts/{courtId}` | Yes | Yes |
 | `courts/run/{runId}` | `/courts/run/{runId}` | Yes | Yes |
 | `runs/{runId}` | `/courts/run/{runId}` | Yes | Yes |
@@ -57,7 +57,7 @@ All of the following resolve after optional leading slash. Query strings and fra
 
 | Location | URL format |
 |----------|------------|
-| `app/(tabs)/highlights/[highlightId]/index.tsx` — share | `playrateHighlightUrl(id)` → `playrate://highlights/{id}` |
+| `app/highlight/[highlightId]/index.tsx` — share | `playrateHighlightUrl(id)` → `playrate://highlights/{id}` |
 | `app/(tabs)/highlights/index.tsx` — share | Same |
 | `app/(tabs)/courts/[courtId].tsx` — share | `playrateCourtUrl(id)` → `playrate://courts/{id}` |
 | `app/(tabs)/highlights/send-dm.tsx` | `HIGHLIGHT_LINK_PREFIX` + id (`lib/dms.ts`) → `playrate://highlights/` |
@@ -67,7 +67,7 @@ DM bodies still parse **legacy** `playrate://profile/highlights/{id}` in `parseH
 
 ## Push notifications
 
-`lib/push-notifications.ts` navigates with **Expo paths** (`/highlights/...`, `/courts/run/...`, etc.), not share URLs. No change required for deep link consistency.
+`lib/push-notifications.ts` navigates with **Expo paths** (`/highlight/...`, `/courts/run/...`, etc.), not share URLs. No change required for deep link consistency.
 
 ## Beta limitations
 

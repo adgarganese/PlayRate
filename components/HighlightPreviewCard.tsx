@@ -75,7 +75,7 @@ export function HighlightPreviewCard({ highlightId, isMine, createdAt }: Props) 
   }, [highlightId]);
 
   const onPress = () => {
-    router.push(`/profile/highlights/${highlightId}` as any);
+    router.push(`/highlight/${highlightId}`);
   };
 
   if (!preview) {

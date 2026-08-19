@@ -339,7 +339,7 @@ export default function HomeScreen() {
           ) : null}
           <HomeHighlightPreviewTile
             item={item}
-            onPress={() => router.push(`/highlights/${item.id}`)}
+            onPress={() => router.push(`/highlight/${item.id}`)}
           />
         </View>
       </AnimatedListItem>

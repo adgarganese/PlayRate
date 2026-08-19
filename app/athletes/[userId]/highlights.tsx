@@ -83,7 +83,7 @@ export default function AthleteHighlightsScreen() {
   };
 
   const openHighlight = (highlightId: string) => {
-    router.push(`/highlights/${highlightId}`);
+    router.push(`/highlight/${highlightId}`);
   };
 
   if (authLoading) return null;

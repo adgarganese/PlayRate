@@ -464,7 +464,7 @@ export default function HighlightsFeedScreen() {
 
   const openHighlight = useCallback(
     (highlightId: string) => {
-      router.push(`/highlights/${highlightId}`);
+      router.push(`/highlight/${highlightId}`);
     },
     [router]
   );
@@ -579,7 +579,7 @@ export default function HighlightsFeedScreen() {
   );
 
   const handleCommentPress = useCallback((highlightId: string) => {
-    router.push(`/highlights/${highlightId}/comments`);
+    router.push(`/highlight/${highlightId}/comments`);
   }, [router]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { item: FeedHighlight; index: number | null }[] }) => {

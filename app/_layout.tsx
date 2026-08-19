@@ -303,6 +303,7 @@ function RootLayoutNavInner() {
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="terms" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="highlight" options={{ headerShown: false }} />
         <Stack.Screen
           name="sign-in"
           options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}

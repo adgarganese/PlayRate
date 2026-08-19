@@ -193,7 +193,7 @@ export function ActivityHistoryCard({ userId }: ActivityHistoryCardProps) {
 
   const onPressHighlight = useCallback(
     (highlightId: string) => {
-      router.push(`/highlights/${highlightId}`);
+      router.push(`/highlight/${highlightId}`);
     },
     [router]
   );

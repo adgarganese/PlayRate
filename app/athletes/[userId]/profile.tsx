@@ -258,7 +258,7 @@ export default function AthletePublicProfileScreen() {
                 <AthleteHighlightStripTile
                   item={item}
                   surface={colors.surface}
-                  onPress={() => router.push(`/highlights/${item.id}`)}
+                  onPress={() => router.push(`/highlight/${item.id}`)}
                 />
               )}
             />

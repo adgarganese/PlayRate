@@ -396,7 +396,7 @@ function NotificationsTab() {
         return;
       }
       if (['like', 'comment', 'top10', 'share'].includes(n.type) && n.entity_id) {
-        router.push(`/(tabs)/profile/highlights/${n.entity_id}` as any);
+        router.push(`/highlight/${n.entity_id}` as any);
       }
     },
     [user?.id, router, load]
