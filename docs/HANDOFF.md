@@ -5,7 +5,7 @@
 _Last updated: 2026-08-19_
 _Branch: `main`_
 _Shipping binary: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`, `eas submit` succeeded 2026-08-17. Installability confirmed 2026-08-19 (device install + `device_push_tokens` row)._
-_Git: origin/main includes `1d9e358` (HANDOFF rewrite) and this session's create-highlight / home-timeout commit. Expo.plist alignment is `1aa100d` (not in binary 29). No EAS build._
+_Git: origin/main. Last feature commit `4c169a0` (Add Court Places). This HANDOFF sync is the next commit — trust `git log -1` over this SHA. Binary 29 is still `57c1eac` / EAS `9cb81478`. Expo.plist alignment is `1aa100d` (not in that binary). No EAS build this session._
 
 May 2026 launch-crash investigation is **closed**. Do not treat iOS 26 / Hermes PAC / `expo/expo#44356` as a current blocker. Full write-up: [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
 
@@ -42,7 +42,16 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 - Aug 17: APNs entitlement (`aps-environment=production`), production push logging, `updated_at` on token upsert, `Constants.easConfig?.projectId` fallback
 - Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in the shipping binary**. It applies to future OTA and the next native build.
 
-**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever. Highlight detail is a root-stack overlay at `/highlight/[id]` so Back/swipe returns to Home (or whoever opened it) instead of dumping you on the Highlights tab. Share URLs stay `playrate://highlights/{id}`. Onboarding done icon is `basketball.fill` (`figure.basketball` is mapped too). Add Court uses Google Places autocomplete when `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set (same key as Find Courts); otherwise the plain address field remains.
+**On origin after 29 (not in TestFlight 29):**
+
+| SHA | What |
+|---|---|
+| `1aa100d` | `Expo.plist` `EXUpdatesRuntimeVersion` 1.1.2 → 1.1.4 |
+| `1d9e358` | HANDOFF rewrite (current-state source of truth) |
+| `b260d21` | Create-highlight `KeyboardScreen`; home location 8s + section 10s races (12s full-screen gate already existed) |
+| `49170c7` | Highlight detail is a root-stack overlay at `/highlight/[id]`. Back/swipe returns to the origin tab. Share URLs stay `playrate://highlights/{id}`. Legacy `/highlights/:id` redirects. |
+| `5739023` | `IconSymbol` maps `basketball.fill` / `figure.basketball`; onboarding done uses `basketball.fill`. PostHog IPA grep recorded. |
+| `4c169a0` | Add Court Places autocomplete **when** `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set; otherwise the plain address field. |
 
 **Push plumbing**
 
@@ -102,7 +111,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Committed `ios/`:** When adding a native module: `npx expo prebuild --platform ios` locally, review the diff, commit `ios/` by hand. Keep `app.json` `ios.entitlements` / `infoPlist` in sync so a future prebuild does not drop Push. Do not re-enable `prebuild-ios.yml`.
 
-**`EXPO_PUBLIC_*` inlining:** Must be static `process.env.EXPO_PUBLIC_NAME`. Dynamic `env[key]` is invisible to Babel and caused the May launch crash. EAS env present ≠ value in the JS bundle — verify with IPA grep when it matters.
+**`EXPO_PUBLIC_*` inlining:** Must be static `process.env.EXPO_PUBLIC_NAME`. Dynamic `env[key]` is invisible to Babel and caused the May launch crash. EAS env present ≠ value in the JS bundle — verify with IPA grep when it matters. Google Places/Geocoding keys are `EXPO_PUBLIC_*` and will appear in the JS bundle if set — restrict the key in Google Cloud (iOS bundle `com.playrate.app`; APIs: Places + Geocoding if using one key).
 
 **`resolveMediaUrlForPlayback`:** Calls `createSignedUrl` per URL. Safe on detail screens; **not** on browse lists (N+1). Courts grid uses `getPublicUrl` only.
 
