@@ -5,7 +5,7 @@
 _Last updated: 2026-08-19_
 _Branch: `main`_
 _Shipping binary: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`, `eas submit` succeeded 2026-08-17. Installability confirmed 2026-08-19 (device install + `device_push_tokens` row)._
-_Git: `1aa100d` (Expo.plist alignment, not in binary 29) plus this HANDOFF rewrite. Push both to origin; no EAS build._
+_Git: origin/main includes `1d9e358` (HANDOFF rewrite) and this session's create-highlight / home-timeout commit. Expo.plist alignment is `1aa100d` (not in binary 29). No EAS build._
 
 May 2026 launch-crash investigation is **closed**. Do not treat iOS 26 / Hermes PAC / `expo/expo#44356` as a current blocker. Full write-up: [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
 
@@ -42,6 +42,8 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 - Aug 17: APNs entitlement (`aps-environment=production`), production push logging, `updated_at` on token upsert, `Constants.easConfig?.projectId` fallback
 - Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in the shipping binary**. It applies to future OTA and the next native build.
 
+**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever.
+
 **Push plumbing**
 
 - Server: `trigger_push_on_notification()` reads Vault secrets `supabase_functions_url` and `service_role_key` (both present). Applied via SQL Editor (CLI `db push` needs Docker).
@@ -65,15 +67,12 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Now / this week**
 
-1. Push `1aa100d` + this HANDOFF commit (`[skip ci]`). No EAS build required. Do this first — unpushed local commits are a single point of failure.
-2. Confirm lock-screen push via a DM between two accounts (registration already proven). If delivery fails: Sentry `[push] …` warnings on the **recipient** device first; Mac Console.app if Sentry is silent.
-3. PostHog IPA grep on 29: one `Select-String -SimpleMatch` per pattern; confirm `phc_vamGj9VpDGcG` present and `--environment` absent.
+1. Confirm lock-screen push via a DM between two accounts (registration already proven). If delivery fails: Sentry `[push] …` warnings on the **recipient** device first; Mac Console.app if Sentry is silent.
+2. PostHog IPA grep on 29: one `Select-String -SimpleMatch` per pattern; confirm `phc_vamGj9VpDGcG` present and `--environment` absent.
 
 **Soon, no build required unless noted**
 
 - Universal links / AASA (`EXPO_PUBLIC_UNIVERSAL_LINK_HOST` unset; shares use `playrate://`).
-- Create-highlight keyboard covering caption (`KeyboardAvoidingView` / `KeyboardScreen` never added).
-- Home initial-load hang if one of three requests never resolves (timeout recommended, not implemented).
 - Home → highlight detail back navigation (may skip Highlights tab). Unverified on 29.
 - Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds.
 - `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production` in EAS (trivial, next build).

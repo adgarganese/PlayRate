@@ -6,9 +6,9 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
   TouchableOpacity,
 } from 'react-native';
+import type { ScrollView as ScrollViewType } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -19,6 +19,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import { Screen } from '@/components/ui/Screen';
+import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
 import { Header } from '@/components/ui/Header';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/TextInput';
@@ -44,7 +45,6 @@ import {
   type HighlightDraft,
 } from '@/lib/highlight-drafts';
 import { hapticMedium } from '@/lib/haptics';
-import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 
 type IconSymbolName = React.ComponentProps<typeof IconSymbol>['name'];
 
@@ -244,7 +244,7 @@ export default function HighlightCreateScreen() {
 
   const { user, loading } = useAuth();
   const { colors } = useThemeColors();
-  const scrollBottomPadding = useScrollContentBottomPadding();
+  const composeScrollRef = useRef<ScrollViewType>(null);
   const hasRedirectedRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -862,6 +862,12 @@ export default function HighlightCreateScreen() {
     router.back();
   }, [phase, draftIdParam, router]);
 
+  const scrollComposeToEnd = useCallback(() => {
+    requestAnimationFrame(() => {
+      composeScrollRef.current?.scrollToEnd({ animated: true });
+    });
+  }, []);
+
   if (!authReady) {
     return (
       <Screen>
@@ -906,80 +912,8 @@ export default function HighlightCreateScreen() {
   const saveDraftDisabled =
     uploading || compressing || (!loadedDraftId && !localUri?.trim());
 
-  const composeView = (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPadding + Spacing.lg }]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={[styles.previewWrap, { borderColor: colors.border }]}>
-        <ComposeMediaPreview
-          localUri={localUri}
-          localIsVideo={localIsVideo}
-          remoteDraft={remoteDraft}
-          resolvedVideoUrl={resolvedRemoteVideo}
-        />
-      </View>
-      <TouchableOpacity
-        onPress={changeMediaFromLibrary}
-        disabled={busy}
-        style={styles.changeMediaBtn}
-        accessibilityRole="button"
-        accessibilityLabel="Change photo or video"
-      >
-        <Text style={[styles.changeMediaText, { color: colors.primary }]}>Change media</Text>
-      </TouchableOpacity>
-
-      <TextInput
-        label="Sport"
-        placeholder="e.g. basketball"
-        value={sport}
-        onChangeText={setSport}
-        editable={!busy}
-        autoCapitalize="none"
-        style={styles.field}
-      />
-      <TextInput
-        label="Caption"
-        placeholder="Say something about this highlight"
-        value={caption}
-        onChangeText={setCaption}
-        editable={!busy}
-        multiline
-        numberOfLines={4}
-        style={styles.captionInput}
-      />
-
-      <Button
-        title={primaryLabel}
-        onPress={loadedDraftId ? handlePublishDraft : publishNewHighlight}
-        variant="primary"
-        loading={uploading || compressing}
-        disabled={savingDraft || !canPostOrPublish}
-        style={styles.primaryBtn}
-      />
-      <Button
-        title={draftButtonLabel}
-        onPress={handleSaveOrUpdateDraft}
-        variant="secondary"
-        loading={savingDraft}
-        disabled={saveDraftDisabled}
-        style={styles.secondaryBtn}
-      />
-
-      {uploading || savingDraft || compressing ? (
-        <View style={styles.uploadingRow}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={[styles.mutedSmall, { color: colors.textMuted }]}>
-            {compressing ? 'Compressing…' : uploading ? 'Working…' : 'Saving…'}
-          </Text>
-        </View>
-      ) : null}
-    </ScrollView>
-  );
-
   return (
-    <Screen>
+    <KeyboardScreen ref={composeScrollRef} contentContainerStyle={styles.scrollContent}>
       <Header
         title={headerTitle}
         onBackPress={handleHeaderBack}
@@ -999,7 +933,73 @@ export default function HighlightCreateScreen() {
           : {})}
       />
       {phase === 'compose' ? (
-        composeView
+        <>
+          <View style={[styles.previewWrap, { borderColor: colors.border }]}>
+            <ComposeMediaPreview
+              localUri={localUri}
+              localIsVideo={localIsVideo}
+              remoteDraft={remoteDraft}
+              resolvedVideoUrl={resolvedRemoteVideo}
+            />
+          </View>
+          <TouchableOpacity
+            onPress={changeMediaFromLibrary}
+            disabled={busy}
+            style={styles.changeMediaBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Change photo or video"
+          >
+            <Text style={[styles.changeMediaText, { color: colors.primary }]}>Change media</Text>
+          </TouchableOpacity>
+
+          <TextInput
+            label="Sport"
+            placeholder="e.g. basketball"
+            value={sport}
+            onChangeText={setSport}
+            editable={!busy}
+            autoCapitalize="none"
+            style={styles.field}
+            onFocus={scrollComposeToEnd}
+          />
+          <TextInput
+            label="Caption"
+            placeholder="Say something about this highlight"
+            value={caption}
+            onChangeText={setCaption}
+            editable={!busy}
+            multiline
+            numberOfLines={4}
+            style={styles.captionInput}
+            onFocus={scrollComposeToEnd}
+          />
+
+          <Button
+            title={primaryLabel}
+            onPress={loadedDraftId ? handlePublishDraft : publishNewHighlight}
+            variant="primary"
+            loading={uploading || compressing}
+            disabled={savingDraft || !canPostOrPublish}
+            style={styles.primaryBtn}
+          />
+          <Button
+            title={draftButtonLabel}
+            onPress={handleSaveOrUpdateDraft}
+            variant="secondary"
+            loading={savingDraft}
+            disabled={saveDraftDisabled}
+            style={styles.secondaryBtn}
+          />
+
+          {uploading || savingDraft || compressing ? (
+            <View style={styles.uploadingRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.mutedSmall, { color: colors.textMuted }]}>
+                {compressing ? 'Compressing…' : uploading ? 'Working…' : 'Saving…'}
+              </Text>
+            </View>
+          ) : null}
+        </>
       ) : (
         <View style={styles.content}>
           <Text style={[styles.lead, { color: colors.textMuted }]}>
@@ -1023,7 +1023,7 @@ export default function HighlightCreateScreen() {
           </View>
         </View>
       )}
-    </Screen>
+    </KeyboardScreen>
   );
 }
 
@@ -1036,15 +1036,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.lg,
-  },
-  scroll: {
-    flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
+    flexGrow: 1,
   },
   lead: {
     ...Typography.body,

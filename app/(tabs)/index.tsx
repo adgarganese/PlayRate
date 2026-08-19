@@ -44,6 +44,34 @@ const HOME_HIGHLIGHT_PREVIEW_TILE_PX = 112;
 const HOME_PREVIEW_IMAGE_TRANSITION_MS = 160;
 const RECOMMENDED_FRIENDS_MAX = 3;
 const FRIENDS_QUERY_LIMIT = 15;
+const INITIAL_LOAD_TIMEOUT_MS = 12_000;
+const HOME_SECTION_TIMEOUT_MS = 10_000;
+const LOCATION_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
 
 type RecommendedFriend = {
   user_id: string;
@@ -195,14 +223,22 @@ export default function HomeScreen() {
       try {
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({});
+          const loc = await withTimeout(
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            LOCATION_TIMEOUT_MS,
+            'home:location'
+          );
           userLat = loc.coords.latitude;
           userLng = loc.coords.longitude;
         }
       } catch (error) {
         if (__DEV__) console.warn('[home:loadRecommendedRuns] location', error);
       }
-      const runs = await fetchRecommendedRuns(userLat, userLng);
+      const runs = await withTimeout(
+        fetchRecommendedRuns(userLat, userLng),
+        HOME_SECTION_TIMEOUT_MS,
+        'home:runs'
+      );
       setRecommendedRuns(runs);
     } catch (error) {
       logDevError('home:loadRecommendedRuns', error);
@@ -221,38 +257,43 @@ export default function HomeScreen() {
 
     setLoadingFriends(true);
     setFriendsLoadError(false);
-    let list: RecommendedFriend[] = [];
-    let followingIds = new Set<string>();
     try {
-      const { data: followingData } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', user.id);
-      followingIds = new Set((followingData ?? []).map((f) => f.following_id));
-      const excludeIds = [user.id, ...followingIds];
+      const list = await withTimeout(
+        (async () => {
+          let followingIds = new Set<string>();
+          try {
+            const { data: followingData } = await supabase
+              .from('follows')
+              .select('following_id')
+              .eq('follower_id', user.id);
+            followingIds = new Set((followingData ?? []).map((f) => f.following_id));
+            const excludeIds = [user.id, ...followingIds];
 
-      const primary = await supabase
-        .from('profiles')
-        .select('user_id, name, username, avatar_url, rep_level, created_at')
-        .not('user_id', 'in', `(${excludeIds.join(',')})`)
-        .order('created_at', { ascending: false })
-        .limit(FRIENDS_QUERY_LIMIT);
+            const primary = await supabase
+              .from('profiles')
+              .select('user_id, name, username, avatar_url, rep_level, created_at')
+              .not('user_id', 'in', `(${excludeIds.join(',')})`)
+              .order('created_at', { ascending: false })
+              .limit(FRIENDS_QUERY_LIMIT);
 
-      if (!primary.error && primary.data?.length) {
-        list = primary.data as RecommendedFriend[];
-      } else {
-        list = await fetchRecommendedFriendsFallback(user.id, followingIds);
-      }
+            if (!primary.error && primary.data?.length) {
+              return primary.data as RecommendedFriend[];
+            }
+            return fetchRecommendedFriendsFallback(user.id, followingIds);
+          } catch (err) {
+            logDevError('home:loadRecommendedFriends', err);
+            return fetchRecommendedFriendsFallback(user.id, followingIds);
+          }
+        })(),
+        HOME_SECTION_TIMEOUT_MS,
+        'home:friends'
+      );
+      setRecommendedFriends(list.slice(0, RECOMMENDED_FRIENDS_MAX));
     } catch (err) {
       logDevError('home:loadRecommendedFriends', err);
-      try {
-        list = await fetchRecommendedFriendsFallback(user.id, followingIds);
-      } catch (fallbackErr) {
-        logDevError('home:loadRecommendedFriends:fallback', fallbackErr);
-        setFriendsLoadError(true);
-      }
+      setFriendsLoadError(true);
+      setRecommendedFriends([]);
     } finally {
-      setRecommendedFriends(list.slice(0, RECOMMENDED_FRIENDS_MAX));
       setLoadingFriends(false);
     }
   }, [user]);
@@ -261,11 +302,10 @@ export default function HomeScreen() {
     setLoadingHighlights(true);
     setHighlightsLoadError(false);
     try {
-      const result = await loadHighlightsFeed(
-        'all',
-        user?.id ?? null,
-        0,
-        HIGHLIGHTS_PREVIEW_LIMIT
+      const result = await withTimeout(
+        loadHighlightsFeed('all', user?.id ?? null, 0, HIGHLIGHTS_PREVIEW_LIMIT),
+        HOME_SECTION_TIMEOUT_MS,
+        'home:highlights'
       );
       if (!result.error) {
         setHighlightsPreview(result.highlights ?? []);
@@ -324,8 +364,6 @@ export default function HomeScreen() {
       track('run_recommendations_viewed', { count: recommendedRuns.length });
     }
   }, [loadingRuns, recommendedRuns.length, hasInitialLoadCompleted]);
-
-  const INITIAL_LOAD_TIMEOUT_MS = 12000;
 
   useEffect(() => {
     if (!user) {
