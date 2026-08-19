@@ -5,7 +5,7 @@
 _Last updated: 2026-08-19_
 _Branch: `main`_
 _Shipping binary: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`, `eas submit` succeeded 2026-08-17. Installability confirmed 2026-08-19 (device install + `device_push_tokens` row)._
-_Git: origin/main. Last feature commit `4c169a0` (Add Court Places). This HANDOFF sync is the next commit — trust `git log -1` over this SHA. Binary 29 is still `57c1eac` / EAS `9cb81478`. Expo.plist alignment is `1aa100d` (not in that binary). No EAS build this session._
+_Git: origin/main at `9702652` (HANDOFF sync). Last feature commit `4c169a0`. Trust `git log -1` over this SHA after the next commit. Binary 29 is still `57c1eac` / EAS `9cb81478`. Expo.plist alignment is `1aa100d` (not in that binary). No EAS build this session._
 
 May 2026 launch-crash investigation is **closed**. Do not treat iOS 26 / Hermes PAC / `expo/expo#44356` as a current blocker. Full write-up: [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
 
@@ -26,7 +26,7 @@ PlayRate — mobile social app for pickup and recreational athletes. Multi-sport
 
 - **Framework:** Expo SDK **~54.0.33**, committed **`ios/`** (EAS does **not** prebuild; `eas.json` has no prebuild override)
 - **Backend:** Supabase project `nhqhkwvmludnsblimjeu`
-- **Analytics:** PostHog (`EXPO_PUBLIC_POSTHOG_API_KEY` in EAS production/preview; prefix `phc_vamGj9VpDGcG`; no `--environment` suffix in the env value). **IPA grep on 29 (2026-08-19):** `phc_vamGj9VpDGcG` present in `main.jsbundle`; `--environment` absent; `process.env.EXPO_PUBLIC_POSTHOG_API_KEY` absent (inlined).
+- **Analytics:** PostHog (`EXPO_PUBLIC_POSTHOG_API_KEY` in EAS production/preview; prefix `phc_vamGj9VpDGcG`; no `--environment` suffix in the env value). **IPA grep on 29 (2026-08-19):** `phc_vamGj9VpDGcG` present in `main.jsbundle`; `--environment` absent; `process.env.EXPO_PUBLIC_POSTHOG_API_KEY` as a runtime reference is absent (Babel inlined the value at build time).
 - **Errors:** Sentry org **`playrate`**, project **`react-native`**. Slug settled in `63df4b3` (2026-05-07). DSN + `SENTRY_AUTH_TOKEN` in EAS. A **1.1.3 release exists** on the dashboard (source-map upload path healthy). No captured crash events observed as of 2026-08-12 (low tester traffic + short free-tier issue retention). That does **not** by itself prove JS `Sentry.init` ran on device. Native `AppDelegate.swift` init stays deferred until a real crash on 29 fails to appear.
 - **Domain:** playrate.io (Vercel). Password-reset bridge live at `https://playrate.io/password-reset.html` (`EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL` set in EAS).
 - **CI:** `.github/workflows/ci.yml` — `verify` (tsc/lint/test) then `eas-preview-build` on push to `main` **unless** the head commit message contains `[skip ci]`. That preview job spends an EAS credit and does **not** produce a TestFlight binary.
@@ -40,7 +40,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 - June 8: cosign modal + primary `#38BDF8`; push trigger reads Vault; onboarding polish; courts 2-up portrait grid
 - Aug 17: APNs entitlement (`aps-environment=production`), production push logging, `updated_at` on token upsert, `Constants.easConfig?.projectId` fallback
-- Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in the shipping binary**. It applies to future OTA and the next native build.
+- Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in binary 29**. Binary 29 checks in as runtime **1.1.2** for OTA — EAS Updates published against runtime 1.1.4 will **not** reach binary 29 installs. The next native build picks up 1.1.4 going forward. Do not publish an OTA “fix” for testers on 29 against runtime 1.1.4 and wonder why they don’t see it.
 
 **On origin after 29 (not in TestFlight 29):**
 
@@ -48,7 +48,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 |---|---|
 | `1aa100d` | `Expo.plist` `EXUpdatesRuntimeVersion` 1.1.2 → 1.1.4 |
 | `1d9e358` | HANDOFF rewrite (current-state source of truth) |
-| `b260d21` | Create-highlight `KeyboardScreen`; home location 8s + section 10s races (12s full-screen gate already existed) |
+| `b260d21` | Create-highlight `KeyboardScreen`; home load races: GPS 8s then continue without coords; each home section 10s then error/retry UI; 12s hard gate unblocks the full-screen “Loading…” even if a request is still in flight |
 | `49170c7` | Highlight detail is a root-stack overlay at `/highlight/[id]`. Back/swipe returns to the origin tab. Share URLs stay `playrate://highlights/{id}`. Legacy `/highlights/:id` redirects. |
 | `5739023` | `IconSymbol` maps `basketball.fill` / `figure.basketball`; onboarding done uses `basketball.fill`. PostHog IPA grep recorded. |
 | `4c169a0` | Add Court Places autocomplete **when** `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set; otherwise the plain address field. |
@@ -76,13 +76,13 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Now / this week**
 
-1. Confirm lock-screen push via a DM between two accounts (registration already proven). If delivery fails: Sentry `[push] …` warnings on the **recipient** device first; Mac Console.app if Sentry is silent.
+1. Confirm lock-screen push via a DM between two accounts (registration already proven). If delivery fails: Sentry `[push] …` warnings on the **recipient** device first; Mac Console.app if Sentry is silent. If delivery **succeeds**: record date + the two user IDs in this file so a later silent break has a known-good baseline.
+2. Set `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` in EAS production + preview. **Restrict the Google Cloud key first** (iOS app restriction, bundle `com.playrate.app`, APIs: Places + Geocoding if one key — not HTTP referrer, not IP). Then set the EAS env var. See Section 5. Until this ships in a **new binary**, Add Court stays on the plain address field and Find Courts search is a no-op. Optional separate `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY` for Geocoding-only restriction.
 
 **Soon, no build required unless noted**
 
-- Set `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` in EAS production/preview (Google Cloud key, restricted). Unlocks Find Courts address search and Add Court autocomplete; without it Add Court keeps the plain address field. `EXPO_PUBLIC_*` is inlined at build — **next binary**, not OTA. Optional separate `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY` if you want Geocoding-only restriction.
 - Universal links / AASA (`EXPO_PUBLIC_UNIVERSAL_LINK_HOST` unset; shares use `playrate://`).
-- Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds.
+- Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds; **card proportions** (2-up, 3:4 photo, reduced Card padding was math not measured — if photos feel like thumbnails or the address wraps oddly, swap aspect without changing the layout).
 - `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production` in EAS (trivial, next build).
 - `schema_migrations` ledger drift (prod applied more migrations than the first-5 ledger). Post-beta.
 
@@ -101,7 +101,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **`--non-interactive` after entitlement changes:** Never pass `--non-interactive` on the first production build after entitlements change. It skips Apple auth and reuses a stale App Store profile (this caused `397db901` — profile lacked Push / `aps-environment`).
 
-**Production iOS build:** `npx eas build --platform ios --profile production` from a **standalone PowerShell** (not Cursor’s terminal) when Apple login / 2FA / profile prompts are needed. If signing failed and the binary **never reached App Store Connect**, retry that **same git SHA** — do not invent a new commit or bump 1.1.5 just to rebuild.
+**Production iOS build:** `npx eas build --platform ios --profile production` from a **standalone PowerShell** (not Cursor’s terminal) when Apple login / 2FA / profile prompts are needed. If signing failed and the binary **never reached App Store Connect**, retry that **same git SHA** — do not invent a new commit or bump 1.1.5 just to rebuild. Profile/credential fixes between attempts are server-side (Apple + Expo); they do not require a git change.
 
 **After a green production build:** `npx eas submit --platform ios --profile production --latest`. Internal testers install after Apple processing; **external** testers wait on beta review for a **new marketing version**. `ITSAppUsesNonExemptEncryption` is `false` in committed `ios/PlayRate/Info.plist` (verified 2026-08-17).
 
@@ -111,7 +111,9 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Committed `ios/`:** When adding a native module: `npx expo prebuild --platform ios` locally, review the diff, commit `ios/` by hand. Keep `app.json` `ios.entitlements` / `infoPlist` in sync so a future prebuild does not drop Push. Do not re-enable `prebuild-ios.yml`.
 
-**`EXPO_PUBLIC_*` inlining:** Must be static `process.env.EXPO_PUBLIC_NAME`. Dynamic `env[key]` is invisible to Babel and caused the May launch crash. EAS env present ≠ value in the JS bundle — verify with IPA grep when it matters. Google Places/Geocoding keys are `EXPO_PUBLIC_*` and will appear in the JS bundle if set — restrict the key in Google Cloud (iOS bundle `com.playrate.app`; APIs: Places + Geocoding if using one key).
+**`EXPO_PUBLIC_*` inlining:** Must be static `process.env.EXPO_PUBLIC_NAME`. Dynamic `env[key]` is invisible to Babel and caused the May launch crash. EAS env present ≠ value in the JS bundle — verify with IPA grep when it matters. Google Places/Geocoding keys are `EXPO_PUBLIC_*` and **will appear in `main.jsbundle` in plaintext** if set. **Restrict the Google Cloud key before setting it in EAS** (iOS app restriction, bundle `com.playrate.app`; APIs: Places + Geocoding if using one key — not HTTP referrer, not IP). Once EAS has the value, the next production build inlines it regardless of whether Google Cloud restriction is finished.
+
+**Google Places billing:** Autocomplete is billed per session/request. Add Court (`4c169a0`) and Find Courts both `debounce={300}`. Do not drop that debounce or fire a session on component mount.
 
 **`resolveMediaUrlForPlayback`:** Calls `createSignedUrl` per URL. Safe on detail screens; **not** on browse lists (N+1). Courts grid uses `getPublicUrl` only.
 
@@ -136,7 +138,7 @@ When bumping for a new binary, in **one** commit (usually `chore(release): … [
 
 Reuse the same marketing/build numbers if that build **never reached App Store Connect** (failed EAS/signing). Bump if ASC already accepted that build number.
 
-**`runtimeVersion` vs reuse:** Bump `expo.runtimeVersion` **and** `Expo.plist` `EXUpdatesRuntimeVersion` together when native code or native config changes (entitlements, Info.plist, native modules). Reuse the current runtime when only JS/assets change so EAS Update can still target existing installs. Mismatched `app.json` vs `Expo.plist` runtimes will make OTA refuse to apply.
+**`runtimeVersion` vs reuse:** Bump `expo.runtimeVersion` **and** `Expo.plist` `EXUpdatesRuntimeVersion` together when native code or native config changes (entitlements, Info.plist, native modules). Reuse the current runtime when only JS/assets change so EAS Update can still target existing installs. Mismatched `app.json` runtime vs `Expo.plist` `EXUpdatesRuntimeVersion` means the native binary and the OTA channel disagree — updates will not apply, and there is **no error**, just silent OTA orphaning.
 
 ## 7. Session opener
 
