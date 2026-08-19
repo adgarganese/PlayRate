@@ -42,7 +42,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 - Aug 17: APNs entitlement (`aps-environment=production`), production push logging, `updated_at` on token upsert, `Constants.easConfig?.projectId` fallback
 - Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in the shipping binary**. It applies to future OTA and the next native build.
 
-**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever. Highlight detail is a root-stack overlay at `/highlight/[id]` so Back/swipe returns to Home (or whoever opened it) instead of dumping you on the Highlights tab. Share URLs stay `playrate://highlights/{id}`. Onboarding done icon is `basketball.fill` (`figure.basketball` is mapped too).
+**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever. Highlight detail is a root-stack overlay at `/highlight/[id]` so Back/swipe returns to Home (or whoever opened it) instead of dumping you on the Highlights tab. Share URLs stay `playrate://highlights/{id}`. Onboarding done icon is `basketball.fill` (`figure.basketball` is mapped too). Add Court uses Google Places autocomplete when `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set (same key as Find Courts); otherwise the plain address field remains.
 
 **Push plumbing**
 
@@ -71,6 +71,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Soon, no build required unless noted**
 
+- Set `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` in EAS production/preview (Google Cloud key, restricted). Unlocks Find Courts address search and Add Court autocomplete; without it Add Court keeps the plain address field. `EXPO_PUBLIC_*` is inlined at build — **next binary**, not OTA. Optional separate `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY` if you want Geocoding-only restriction.
 - Universal links / AASA (`EXPO_PUBLIC_UNIVERSAL_LINK_HOST` unset; shares use `playrate://`).
 - Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds.
 - `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production` in EAS (trivial, next build).
@@ -80,7 +81,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 - Achievement / streak / King of the Court badges — integrate with Bronze→Diamond rep, not a parallel system.
 - Phone auth, soccer UI, court leaderboard (flags).
-- Android: Maps/Places keys, notification icon, Play Internal Testing, CI Android.
+- Android: notification icon, Play Internal Testing, CI Android. Maps/Places keys are the iOS item above (same env); Android still needs its own Maps/Places key restriction when that launch happens.
 - Squads / coach-scout badges.
 - Native Sentry `AppDelegate.swift` init — only if a crash on 29 never appears in `playrate/react-native`.
 - Face ID: not in current `Info.plist` or app code. Needs `NSFaceIDUsageDescription` if ever added.

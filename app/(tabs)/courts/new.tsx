@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Alert, ActivityIndicator, TextInput as RNTextInput, TouchableOpacity, Switch } from 'react-native';
 import { useRouter } from 'expo-router';
+import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
 import { Screen } from '@/components/ui/Screen';
@@ -17,6 +18,7 @@ import { isSportEnabled } from '@/constants/sport-definitions';
 import { logger } from '@/lib/logger';
 import { UI_LOAD_FAILED } from '@/lib/user-facing-errors';
 import { geocodeAddress } from '@/lib/geocoding';
+import { googlePlacesApiKey } from '@/lib/config';
 import { devWarn } from '@/lib/logging';
 
 type Sport = {
@@ -42,8 +44,11 @@ export default function NewCourtScreen() {
   const router = useRouter();
   useAuth();
   const { colors } = useThemeColors();
+  const placesApiKey = googlePlacesApiKey ?? '';
+  const usePlacesAutocomplete = placesApiKey.length > 0;
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [placeCoords, setPlaceCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedSports, setSelectedSports] = useState<Set<string>>(new Set());
   const [comment, setComment] = useState('');
   const [sports, setSports] = useState<Sport[]>([]);
@@ -184,11 +189,11 @@ export default function NewCourtScreen() {
         }
       }
 
-      // Geocode the address to get coordinates
-      let lat: number | null = null;
-      let lng: number | null = null;
-      
-      if (trimmedAddress) {
+      // Prefer coordinates from Places details; otherwise geocode the typed address
+      let lat: number | null = placeCoords?.lat ?? null;
+      let lng: number | null = placeCoords?.lng ?? null;
+
+      if ((lat == null || lng == null) && trimmedAddress) {
         const coordinates = await geocodeAddress(trimmedAddress);
         if (coordinates) {
           lat = coordinates.lat;
@@ -319,7 +324,10 @@ export default function NewCourtScreen() {
   }
 
   return (
-    <KeyboardScreen contentContainerStyle={styles.scrollContent}>
+    <KeyboardScreen
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="always"
+    >
         <Header title="Add Court" showBack={false} />
 
         <Card>
@@ -332,20 +340,73 @@ export default function NewCourtScreen() {
             maxLength={100}
           />
 
-          <View>
+          <View style={styles.addressWrap}>
             <Text style={[styles.label, { color: colors.textMuted }]}>Address *</Text>
             <Text style={[styles.hint, { color: colors.textMuted }]}>{`If this address already exists, we'll take you to the existing court.`}</Text>
-            <RNTextInput
-              style={[styles.textArea, { marginBottom: Spacing.lg, backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-              placeholder="Full street address"
-              placeholderTextColor={colors.textMuted}
-              value={address}
-              onChangeText={setAddress}
-              editable={!submitting}
-              multiline
-              numberOfLines={3}
-              maxLength={200}
-            />
+            {usePlacesAutocomplete ? (
+              <GooglePlacesAutocomplete
+                placeholder="Search for a street address"
+                fetchDetails
+                enablePoweredByContainer={false}
+                debounce={300}
+                predefinedPlaces={[]}
+                keyboardShouldPersistTaps="always"
+                query={{
+                  key: placesApiKey,
+                  language: 'en',
+                  components: 'country:us',
+                }}
+                onPress={(data, details) => {
+                  const formatted =
+                    details?.formatted_address?.trim() ||
+                    data?.description?.trim() ||
+                    '';
+                  setAddress(formatted);
+                  const loc = details?.geometry?.location;
+                  if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+                    setPlaceCoords({ lat: loc.lat, lng: loc.lng });
+                  } else {
+                    setPlaceCoords(null);
+                  }
+                }}
+                textInputProps={{
+                  placeholderTextColor: colors.textMuted,
+                  editable: !submitting,
+                  returnKeyType: 'search',
+                  onChangeText: (text) => {
+                    setAddress(text);
+                    setPlaceCoords(null);
+                  },
+                }}
+                styles={{
+                  container: styles.placesContainer,
+                  textInputContainer: [
+                    styles.placesInputContainer,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ],
+                  textInput: [styles.placesInput, { color: colors.text }],
+                  listView: [
+                    styles.placesList,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ],
+                  row: [styles.placesRow, { borderBottomColor: colors.border }],
+                  separator: [styles.placesSeparator, { backgroundColor: colors.border }],
+                  description: { color: colors.text },
+                }}
+              />
+            ) : (
+              <RNTextInput
+                style={[styles.textArea, { marginBottom: Spacing.lg, backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+                placeholder="Full street address"
+                placeholderTextColor={colors.textMuted}
+                value={address}
+                onChangeText={setAddress}
+                editable={!submitting}
+                multiline
+                numberOfLines={3}
+                maxLength={200}
+              />
+            )}
           </View>
 
           <View style={styles.section}>
@@ -609,6 +670,37 @@ const styles = StyleSheet.create({
   hint: {
     ...Typography.mutedSmall,
     marginBottom: Spacing.sm,
+  },
+  addressWrap: {
+    zIndex: 20,
+    marginBottom: Spacing.lg,
+  },
+  placesContainer: {
+    flex: 0,
+  },
+  placesInputContainer: {
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.sm,
+  },
+  placesInput: {
+    ...Typography.body,
+    backgroundColor: 'transparent',
+    height: 44,
+    paddingHorizontal: Spacing.sm,
+  },
+  placesList: {
+    borderRadius: Radius.sm,
+    marginTop: Spacing.xs,
+    borderWidth: 1,
+    maxHeight: 200,
+  },
+  placesRow: {
+    padding: Spacing.md,
+    borderBottomWidth: 1,
+  },
+  placesSeparator: {
+    height: 1,
   },
   textArea: {
     ...Typography.body,
