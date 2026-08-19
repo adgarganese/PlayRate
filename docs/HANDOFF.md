@@ -26,7 +26,7 @@ PlayRate — mobile social app for pickup and recreational athletes. Multi-sport
 
 - **Framework:** Expo SDK **~54.0.33**, committed **`ios/`** (EAS does **not** prebuild; `eas.json` has no prebuild override)
 - **Backend:** Supabase project `nhqhkwvmludnsblimjeu`
-- **Analytics:** PostHog (`EXPO_PUBLIC_POSTHOG_API_KEY` in EAS production/preview; prefix `phc_vamGj9VpDGcG`; no `--environment` suffix in the env value). **IPA bundle grep on 29 still pending.**
+- **Analytics:** PostHog (`EXPO_PUBLIC_POSTHOG_API_KEY` in EAS production/preview; prefix `phc_vamGj9VpDGcG`; no `--environment` suffix in the env value). **IPA grep on 29 (2026-08-19):** `phc_vamGj9VpDGcG` present in `main.jsbundle`; `--environment` absent; `process.env.EXPO_PUBLIC_POSTHOG_API_KEY` absent (inlined).
 - **Errors:** Sentry org **`playrate`**, project **`react-native`**. Slug settled in `63df4b3` (2026-05-07). DSN + `SENTRY_AUTH_TOKEN` in EAS. A **1.1.3 release exists** on the dashboard (source-map upload path healthy). No captured crash events observed as of 2026-08-12 (low tester traffic + short free-tier issue retention). That does **not** by itself prove JS `Sentry.init` ran on device. Native `AppDelegate.swift` init stays deferred until a real crash on 29 fails to appear.
 - **Domain:** playrate.io (Vercel). Password-reset bridge live at `https://playrate.io/password-reset.html` (`EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL` set in EAS).
 - **CI:** `.github/workflows/ci.yml` — `verify` (tsc/lint/test) then `eas-preview-build` on push to `main` **unless** the head commit message contains `[skip ci]`. That preview job spends an EAS credit and does **not** produce a TestFlight binary.
@@ -42,7 +42,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 - Aug 17: APNs entitlement (`aps-environment=production`), production push logging, `updated_at` on token upsert, `Constants.easConfig?.projectId` fallback
 - Version bump per native SOP **except** `Expo.plist` `EXUpdatesRuntimeVersion`, which was still `1.1.2` in `57c1eac`. **29 was built from `57c1eac`.** Alignment to `1.1.4` is `1aa100d` on top of that, **not in the shipping binary**. It applies to future OTA and the next native build.
 
-**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever. Highlight detail is a root-stack overlay at `/highlight/[id]` so Back/swipe returns to Home (or whoever opened it) instead of dumping you on the Highlights tab. Share URLs stay `playrate://highlights/{id}`.
+**This session (not in 29):** create-highlight compose uses `KeyboardScreen` so the caption stays above the keyboard. Home already had a 12s full-screen load gate; location is now raced at 8s and each home section at 10s so a hung GPS/request cannot leave a spinner up forever. Highlight detail is a root-stack overlay at `/highlight/[id]` so Back/swipe returns to Home (or whoever opened it) instead of dumping you on the Highlights tab. Share URLs stay `playrate://highlights/{id}`. Onboarding done icon is `basketball.fill` (`figure.basketball` is mapped too).
 
 **Push plumbing**
 
@@ -61,14 +61,13 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 - Primary `#38BDF8` — intentional June 8 swap. Contrast on light backgrounds is an eyeball item on 29 (Section 4), not a blanket ban on per-spot token tweaks if text is unreadable.
 - Courts browse is 2-up photo cards; sports chips and inline Following were dropped from the grid card on purpose (still on detail).
-- Onboarding done screen uses `star.fill` because `basketball.fill` is not in the `IconSymbol` mapping. Swap when that mapping expands.
+- Onboarding done screen uses `basketball.fill` (`IconSymbol` mapping added 2026-08-19).
 
 ## 4. Open work
 
 **Now / this week**
 
 1. Confirm lock-screen push via a DM between two accounts (registration already proven). If delivery fails: Sentry `[push] …` warnings on the **recipient** device first; Mac Console.app if Sentry is silent.
-2. PostHog IPA grep on 29: one `Select-String -SimpleMatch` per pattern; confirm `phc_vamGj9VpDGcG` present and `--environment` absent.
 
 **Soon, no build required unless noted**
 
@@ -80,7 +79,6 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 **Deferred (design or dedicated session)**
 
 - Achievement / streak / King of the Court badges — integrate with Bronze→Diamond rep, not a parallel system.
-- `IconSymbol` mapping: `basketball.fill` / `figure.basketball` (then swap onboarding done icon).
 - Phone auth, soccer UI, court leaderboard (flags).
 - Android: Maps/Places keys, notification icon, Play Internal Testing, CI Android.
 - Squads / coach-scout badges.

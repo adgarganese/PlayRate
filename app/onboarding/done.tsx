@@ -56,7 +56,7 @@ export default function OnboardingDoneScreen() {
           style={styles.heroGradient}
         >
           <View style={styles.iconBadge}>
-            <IconSymbol name="star.fill" size={26} color={colors.textOnPrimary} />
+            <IconSymbol name="basketball.fill" size={26} color={colors.textOnPrimary} />
           </View>
           <AppText variant="h1" color="textOnPrimary" style={styles.heroTitle}>
             {"You're on the court."}

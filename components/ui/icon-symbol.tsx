@@ -25,6 +25,8 @@ const MAPPING = {
   'person.3.fill': 'people',
   'person.circle.fill': 'account-circle',
   'sportscourt.fill': 'sports-basketball',
+  'basketball.fill': 'sports-basketball',
+  'figure.basketball': 'sports-basketball',
   'play.rectangle.fill': 'play-circle-filled',
   /** Small play badge (e.g. highlight tiles); Material equivalent */
   'play.fill': 'play-arrow',
