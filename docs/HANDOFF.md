@@ -2,10 +2,10 @@
 
 > Single source of truth for current project state. Updated at end of every working session. For tactical details (how a specific fix was implemented, what was tried), prompt Cursor — this doc is state, not history.
 
-_Last updated: 2026-08-19_
+_Last updated: 2026-09-08_
 _Branch: `main`_
 _Shipping binary: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`, `eas submit` succeeded 2026-08-17. Installability confirmed 2026-08-19 (device install + `device_push_tokens` row)._
-_Git: origin/main at `9702652` (HANDOFF sync). Last feature commit `4c169a0`. Trust `git log -1` over this SHA after the next commit. Binary 29 is still `57c1eac` / EAS `9cb81478`. Expo.plist alignment is `1aa100d` (not in that binary). No EAS build this session._
+_Git: trust `git log -1`. Binary 29 is still `57c1eac` / EAS `9cb81478`. Expo.plist alignment is `1aa100d` (not in that binary). No EAS build 2026-09-08._
 
 May 2026 launch-crash investigation is **closed**. Do not treat iOS 26 / Hermes PAC / `expo/expo#44356` as a current blocker. Full write-up: [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
 
@@ -32,9 +32,14 @@ PlayRate — mobile social app for pickup and recreational athletes. Multi-sport
 - **CI:** `.github/workflows/ci.yml` — `verify` (tsc/lint/test) then `eas-preview-build` on push to `main` **unless** the head commit message contains `[skip ci]`. That preview job spends an EAS credit and does **not** produce a TestFlight binary.
 - **Disabled:** `.github/workflows/prebuild-ios.yml` — do **not** re-enable. It once regenerated `ios/` from a stale baseline.
 
-## 3. Current status (2026-08-19)
+## 3. Current status (2026-09-08)
 
-**Phase:** 1.1.4 (29) is installed on at least one device. Device push **registration works** (at least one `device_push_tokens` row after install + notification permission, 2026-08-19). End-to-end lock-screen delivery (Vault → Edge Function → Expo → device) is **waiting on a second-user DM test**. Do not collapse this into “push works” until that test confirms delivery.
+**Phase:** 1.1.4 (29) on TestFlight. **Lock-screen push delivered** on a two-phone DM, 2026-09-08 ~22:51 UTC (recipient banner immediately after send). User IDs not recorded — add them here if you still have both accounts handy. SQL probe `net.http_post` id 8 returned 200 at 22:40 UTC and showed **Push probe from SQL** on the most-recently-updated token’s phone. Do not treat Expo/APNs as unproven anymore. Still not a blanket “all notification types forever” claim — DMs + that probe are the known-good baseline.
+
+**What was broken (2026-08-20 → 2026-09-08):**
+
+1. Edge Function `send-push-notification` `verify_jwt` accepted the Vault `service_role` JWT, then `isAuthorized` 401’d because that JWT string ≠ `SUPABASE_SERVICE_ROLE_KEY` after the API-key migration (`SUPABASE_*` keys marked DEPRECATED). Likes/reposts **did** queue `pg_net` (HTTP 401). Deployed 2026-09-08: allow a platform-verified JWT with `role=service_role`; keep `verify_jwt=true`.
+2. DMs never inserted `notifications` (`new_message`). Inbox bell is unread messages. Applied via SQL Editor 2026-09-08: `on_message_inserted_notify` on `public.messages`. Client `createInAppNotification` in `lib/dms.ts` removed so a later binary does not double-notify.
 
 What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
@@ -55,7 +60,8 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Push plumbing**
 
-- Server: `trigger_push_on_notification()` reads Vault secrets `supabase_functions_url` and `service_role_key` (both present). Applied via SQL Editor (CLI `db push` needs Docker).
+- Server: `trigger_push_on_notification()` reads Vault secrets `supabase_functions_url` and `service_role_key` (both present). Applied via SQL Editor (CLI `db push` needs Docker). DM inserts now create `notifications` via `on_message_inserted_notify` (SQL Editor 2026-09-08; migration `20260908220000`).
+- Edge Function `send-push-notification` v5+ (deploy 2026-09-08): `isAuthorized` accepts env secret match **or** Bearer JWT `iss=supabase` / `role=service_role` (platform `verify_jwt` still on). Vault JWT need not equal `SUPABASE_SERVICE_ROLE_KEY`.
 - Schema: `device_push_tokens` has `updated_at` (added 2026-08-12 via SQL Editor; was missing vs migration `20260414121100` — that drift caused silent upsert failures on 28).
 - Client: empty entitlements on 28 meant `getExpoPushTokenAsync` could not register. Fixed in `4e81857`. Failures now `logger.warn` → Sentry `captureMessage` in production (`lib/logger.ts` verified 2026-08-17: `warn` → `captureMessage`, `info` → `addBreadcrumb`; not `__DEV__`-guarded).
 - Signing: first 29 attempt (`397db901`) failed because App Store profile `VKTPMNRFBN` / `*[expo] com.playrate.app AppStore 2026-03-01…` lacked Push. Interactive rebuild (`9cb81478`) minted a new profile after Apple login. Dist cert `63DAEE2A…` (expires 2027-03-01) was kept.
@@ -71,26 +77,47 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 - Primary `#38BDF8` — intentional June 8 swap. Contrast on light backgrounds is an eyeball item on 29 (Section 4), not a blanket ban on per-spot token tweaks if text is unreadable.
 - Courts browse is 2-up photo cards; sports chips and inline Following were dropped from the grid card on purpose (still on detail).
 - Onboarding done screen uses `basketball.fill` (`IconSymbol` mapping added 2026-08-19).
+- **Visual work:** do not change functionality unless Andrew notes an exception. Look/feel, hierarchy, spacing, icons. The comment composer is an explicit exception (broken).
 
 ## 4. Open work
 
-**Now / this week**
+**Now — visual pass (primary).** Look/feel only unless noted. Andrew likes ~80–90% of the current UI; find what is off rather than restyling from scratch. Spend time here. No EAS credit unless a later native item needs a binary.
 
-1. Confirm lock-screen push via a DM between two accounts (registration already proven). If delivery fails: Sentry `[push] …` warnings on the **recipient** device first; Mac Console.app if Sentry is silent. If delivery **succeeds**: record date + the two user IDs in this file so a later silent break has a known-good baseline.
-2. Set `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` in EAS production + preview. **Restrict the Google Cloud key first** (iOS app restriction, bundle `com.playrate.app`, APIs: Places + Geocoding if one key — not HTTP referrer, not IP). Then set the EAS env var. See Section 5. Until this ships in a **new binary**, Add Court stays on the plain address field and Find Courts search is a no-op. Optional separate `EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY` for Geocoding-only restriction.
+1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
+2. **Visual audit** on 29, screen by screen (home, courts grid, court detail, Find Courts, profile, highlights). Spacing, type, icon alignment, card hierarchy. Do not change flows.
+3. **Highlight comments (exception — broken):** composer text box not visible; user cannot see typing or post. `app/highlight/[highlightId]/comments.tsx` uses `KeyboardAvoidingView` `behavior="position"` on iOS — likely the input is off-screen. Fix when we hit highlights, or as a short interrupt. Same pattern exists on the legacy `app/(tabs)/highlights/[highlightId]/comments.tsx` redirect.
+4. **Find Courts:** shrink the full “No courts found nearby. Add one!” overlay so the map stays usable; hide it when courts exist in the searched/visible region (`app/(tabs)/courts/find.tsx`). Keep Add Court as the empty-state CTA.
+5. **Court card:** move Check in up, right side, opposite ratings; make it larger; rethink the icon. (Court detail hero card, not a new check-in model.)
+6. **Profile:** center header icons (inbox / settings currently right-clustered).
+
+**Next product (after visual is settled)**
+
+- **Runs** stays the name. Check-in = “I am at this court now.” A Run = who is playing / the session. Integrate check-in into that “who’s here / who’s playing” surface rather than inventing a third noun. Do not rename Runs.
+- **Run intensity:** labels first, not a number. Today the DB already has `skill_band` (`casual` / `balanced` / `competitive`) plus unused `skill_min` / `skill_max`. Proposed labels: **Shootaround, Casual, Competitive, Semi-pro** (drop “balanced” — nobody knows what it means). Keep the numeric columns for a later overlay (e.g. 1–10) once there is a real rating input; shipping a number now collides with Bronze→Diamond rep and will get argued. Recap already exists post-run (`app/runs/[id]/recap.tsx`) for cosigns, not W/L.
+
+**Later (inventory 2026-09-08 — do not start)**
+
+| Idea | Already in the app? |
+|---|---|
+| Better Bronze→Diamond icons | **Partial.** `TierBadge` is a letter in a colored square (`B`/`S`/`G`/`P`/`D`). Needs illustration, not a new tier system. |
+| King of the Court = most check-ins | **Partial, hidden.** `get_court_leaderboard` + court detail UI exist; `BETA_HIDE_LEADERBOARD = true`. No crown, not on profile. Unhide + badge, don’t build a second table. |
+| Streaks / log W–L / teammate & court win% | **No.** Recap is cosign-only. Needs new game-log schema. |
+| Leaderboards by zip / city / state (check-ins, cosigns, rating) | **No** at geo grain. Court-level check-in leaderboard only (flagged off). |
+| Highlights “most liked/commented” + weekly Top 10 | **No product.** `top10` is a notification *type* stub only. Counts exist on highlight cards. |
+| Filter feed by sport(s) you want to see | **Partial.** Beta is basketball-only (`SOCCER_ENABLED = false`, `isSportEnabled`). No user “hide sports” control. Add when a second sport ships. |
 
 **Soon, no build required unless noted**
 
 - Universal links / AASA (`EXPO_PUBLIC_UNIVERSAL_LINK_HOST` unset; shares use `playrate://`).
-- Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds; **card proportions** (2-up, 3:4 photo, reduced Card padding was math not measured — if photos feel like thumbnails or the address wraps oddly, swap aspect without changing the layout).
+- Eyeball 29: court-grid placeholders if few photos; `#38BDF8` contrast on light backgrounds; **card proportions** (2-up, 3:4 photo) — fold into the visual pass.
 - `EXPO_PUBLIC_SENTRY_ENVIRONMENT=production` in EAS (trivial, next build).
-- `schema_migrations` ledger drift (prod applied more migrations than the first-5 ledger). Post-beta.
+- Google Places key: closer to launch, next binary, restrict-first. See Section 5.
+- `schema_migrations` ledger drift. Post-beta.
 
 **Deferred (design or dedicated session)**
 
-- Achievement / streak / King of the Court badges — integrate with Bronze→Diamond rep, not a parallel system.
-- Phone auth, soccer UI, court leaderboard (flags).
-- Android: notification icon, Play Internal Testing, CI Android. Maps/Places keys are the iOS item above (same env); Android still needs its own Maps/Places key restriction when that launch happens.
+- Phone auth, soccer UI (`SOCCER_ENABLED`).
+- Android: notification icon, Play Internal Testing, CI Android.
 - Squads / coach-scout badges.
 - Native Sentry `AppDelegate.swift` init — only if a crash on 29 never appears in `playrate/react-native`.
 - Face ID: not in current `Info.plist` or app code. Needs `NSFaceIDUsageDescription` if ever added.

@@ -1,7 +1,6 @@
 import { supabase } from './supabase';
 import { logger } from './logger';
 import { isRpcRateLimitError, RPC_RATE_LIMIT_USER_MESSAGE } from './rpc-rate-limit';
-import { createInAppNotification } from './create-in-app-notification';
 import { sanitizeText, SANITIZE_LIMITS } from './sanitize';
 
 export type ConversationRow = {
@@ -290,35 +289,6 @@ export async function sendMessage(
       err: updateError,
       conversationId,
     });
-  }
-
-  const { data: participants } = await supabase
-    .from('conversation_participants')
-    .select('user_id')
-    .eq('conversation_id', conversationId);
-  const recipientIds = (participants || [])
-    .map((p: { user_id: string }) => p.user_id)
-    .filter((id) => id !== senderId);
-  if (recipientIds.length > 0) {
-    const { data: senderProf } = await supabase
-      .from('profiles')
-      .select('name, username')
-      .eq('user_id', senderId)
-      .maybeSingle();
-    const label = senderProf?.name?.trim() || senderProf?.username || 'Someone';
-    const preview =
-      safeBody.length > 100 ? `${safeBody.slice(0, 97)}...` : safeBody;
-    for (const recipientId of recipientIds) {
-      await createInAppNotification({
-        userId: recipientId,
-        actorId: senderId,
-        type: 'new_message',
-        entityType: 'conversation',
-        entityId: conversationId,
-        title: `${label} sent you a message`,
-        body: preview,
-      });
-    }
   }
 
   return msg as MessageRow;

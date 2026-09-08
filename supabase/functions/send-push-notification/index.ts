@@ -16,14 +16,57 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+/** Payload role only. Signature is enforced by platform `verify_jwt` while that stays on. */
+function jwtRole(token: string): string | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = '='.repeat((4 - (padded.length % 4)) % 4);
+    const json = atob(padded + pad);
+    const payload = JSON.parse(json) as { role?: string; iss?: string };
+    if (payload.iss !== 'supabase') return null;
+    return payload.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function secretKeyValues(): string[] {
+  const out: string[] = [];
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  const shared = Deno.env.get('PUSH_NOTIFY_SHARED_SECRET') ?? '';
+  if (serviceKey) out.push(serviceKey);
+  if (shared) out.push(shared);
+  const raw = Deno.env.get('SUPABASE_SECRET_KEYS') ?? '';
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        for (const v of Object.values(parsed as Record<string, unknown>)) {
+          if (typeof v === 'string' && v.length > 0) out.push(v);
+        }
+      }
+    } catch {
+      /* ignore malformed env */
+    }
+  }
+  return out;
+}
+
 function isAuthorized(req: Request): boolean {
   const authHeader = req.headers.get('Authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  if (!token) return false;
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  const shared = Deno.env.get('PUSH_NOTIFY_SHARED_SECRET') ?? '';
-  if (serviceKey && token === serviceKey) return true;
-  if (shared && token === shared) return true;
+  const apiKey = (req.headers.get('apikey') ?? '').trim();
+  if (!token && !apiKey) return false;
+
+  const secrets = secretKeyValues();
+  if (secrets.some((k) => k === token || k === apiKey)) return true;
+
+  // Vault JWT can differ from the function env JWT after API-key migration.
+  // Platform already verified this Bearer token when verify_jwt is on.
+  if (token && jwtRole(token) === 'service_role') return true;
+
   return false;
 }
 
