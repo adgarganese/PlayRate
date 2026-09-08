@@ -63,8 +63,11 @@ function isAuthorized(req: Request): boolean {
   const secrets = secretKeyValues();
   if (secrets.some((k) => k === token || k === apiKey)) return true;
 
-  // Vault JWT can differ from the function env JWT after API-key migration.
-  // Platform already verified this Bearer token when verify_jwt is on.
+  // SECURITY: Payload role check is ONLY safe because platform verify_jwt=true
+  // verifies the JWT signature upstream (see supabase/config.toml).
+  // If you disable verify_jwt on this function, you MUST add signature
+  // verification here or restrict to env/secret comparison only.
+  // Forged JWTs with role=service_role are trivial without upstream verify.
   if (token && jwtRole(token) === 'service_role') return true;
 
   return false;

@@ -61,7 +61,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 **Push plumbing**
 
 - Server: `trigger_push_on_notification()` reads Vault secrets `supabase_functions_url` and `service_role_key` (both present). Applied via SQL Editor (CLI `db push` needs Docker). DM inserts now create `notifications` via `on_message_inserted_notify` (SQL Editor 2026-09-08; migration `20260908220000`).
-- Edge Function `send-push-notification` v5+ (deploy 2026-09-08): `isAuthorized` accepts env secret match **or** Bearer JWT `iss=supabase` / `role=service_role` (platform `verify_jwt` still on). Vault JWT need not equal `SUPABASE_SERVICE_ROLE_KEY`.
+- Edge Function `send-push-notification` (deploy 2026-09-08): `isAuthorized` accepts env secret match **or** Bearer JWT `iss=supabase` / `role=service_role`. **Load-bearing:** `verify_jwt` must stay true (`supabase/config.toml`). Payload role is not auth if Kong verify is off. Vault JWT need not equal function env `SUPABASE_SERVICE_ROLE_KEY` (DEPRECATED keys; drift vs dashboard Legacy unaudited).
 - Schema: `device_push_tokens` has `updated_at` (added 2026-08-12 via SQL Editor; was missing vs migration `20260414121100` — that drift caused silent upsert failures on 28).
 - Client: empty entitlements on 28 meant `getExpoPushTokenAsync` could not register. Fixed in `4e81857`. Failures now `logger.warn` → Sentry `captureMessage` in production (`lib/logger.ts` verified 2026-08-17: `warn` → `captureMessage`, `info` → `addBreadcrumb`; not `__DEV__`-guarded).
 - Signing: first 29 attempt (`397db901`) failed because App Store profile `VKTPMNRFBN` / `*[expo] com.playrate.app AppStore 2026-03-01…` lacked Push. Interactive rebuild (`9cb81478`) minted a new profile after Apple login. Dist cert `63DAEE2A…` (expires 2027-03-01) was kept.
@@ -81,19 +81,20 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 ## 4. Open work
 
-**Now — visual pass (primary).** Look/feel only unless noted. Andrew likes ~80–90% of the current UI; find what is off rather than restyling from scratch. Spend time here. No EAS credit unless a later native item needs a binary.
+**Now (order: origin has the lock-screen commits → comment composer → visual *list*, then polish commits).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
-2. **Visual audit** on 29, screen by screen (home, courts grid, court detail, Find Courts, profile, highlights). Spacing, type, icon alignment, card hierarchy. Do not change flows.
-3. **Highlight comments (exception — broken):** composer text box not visible; user cannot see typing or post. `app/highlight/[highlightId]/comments.tsx` uses `KeyboardAvoidingView` `behavior="position"` on iOS — likely the input is off-screen. Fix when we hit highlights, or as a short interrupt. Same pattern exists on the legacy `app/(tabs)/highlights/[highlightId]/comments.tsx` redirect.
-4. **Find Courts:** shrink the full “No courts found nearby. Add one!” overlay so the map stays usable; hide it when courts exist in the searched/visible region (`app/(tabs)/courts/find.tsx`). Keep Add Court as the empty-state CTA.
-5. **Court card:** move Check in up, right side, opposite ratings; make it larger; rethink the icon. (Court detail hero card, not a new check-in model.)
-6. **Profile:** center header icons (inbox / settings currently right-clustered).
+2. **Highlight comments (broken):** composer text box not visible. `app/highlight/[highlightId]/comments.tsx` — iOS `KeyboardAvoidingView` `behavior="position"`. Legacy redirect file too.
+3. **Visual audit** produces a *list*, not a commit-per-spot. Then one polish commit. Screens: home, courts grid, court detail, Find Courts, profile, highlights. Include: shrink Find Courts empty overlay / hide when courts in view; court-card check-in opposite ratings; center profile header icons.
+4. **Client-only notification RPCs** (same silent-fail class as DMs before the message trigger): `highlight_like` and `highlight_comment` (`lib/highlights.ts`), `new_follower` (`hooks/useFollow.ts`), `run_join` (`lib/runs.ts`), `cosign` (`lib/recap.ts`). Likes *did* insert tonight (21:09) so some client RPCs work; DMs did not. Don’t assume the RPC is globally dead. Optional belt: partial unique index on `notifications (user_id, type, entity_id) WHERE type = 'new_message'` so 29’s still-shipped client call cannot double-push if it starts succeeding.
+5. Other Edge Functions that string-compare `SUPABASE_SERVICE_ROLE_KEY` — same env drift possible. Only `send-push-notification` exists in repo today.
+
+**Dead-code sweep (not now):** separate `[skip ci]` commit. Two-phase: move candidates to `_deprecated/`, TestFlight for a week, then delete. Cursor lists, Andrew reviews. Do not touch: `docs/` (incl. May post-mortem), `HANDOFF.md`, `supabase/migrations/`, `supabase/functions/send-push-notification/`, `ios/`, anything behind `constants/features.ts`, `lib/config.ts`, string-loaded names (analytics, notification types, deep links, MMKV/AsyncStorage), `.github/workflows/prebuild-ios.yml`.
 
 **Next product (after visual is settled)**
 
-- **Runs** stays the name. Check-in = “I am at this court now.” A Run = who is playing / the session. Integrate check-in into that “who’s here / who’s playing” surface rather than inventing a third noun. Do not rename Runs.
-- **Run intensity:** labels first, not a number. Today the DB already has `skill_band` (`casual` / `balanced` / `competitive`) plus unused `skill_min` / `skill_max`. Proposed labels: **Shootaround, Casual, Competitive, Semi-pro** (drop “balanced” — nobody knows what it means). Keep the numeric columns for a later overlay (e.g. 1–10) once there is a real rating input; shipping a number now collides with Bronze→Diamond rep and will get argued. Recap already exists post-run (`app/runs/[id]/recap.tsx`) for cosigns, not W/L.
+- **Runs** stays the name. Check-in = “I am at this court now.” A Run = who is playing / the session. Prefer `check_ins.run_id` nullable FK so a check-in can exist without a run. Integration UX is its own session.
+- **Run intensity:** labels first. Proposed: **Shootaround, Casual, Competitive,** plus a top tier — prefer **Elite** / **Serious** over **Semi-pro** (identity-loaded). Drop “balanced”. Keep `skill_min` / `skill_max` for later matching. Recap is cosigns, not W/L.
 
 **Later (inventory 2026-09-08 — do not start)**
 

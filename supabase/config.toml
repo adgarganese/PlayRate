@@ -1,5 +1,6 @@
 # Hosted functions: keep platform JWT checks on. pg_net sends the legacy
 # service_role JWT from Vault; isAuthorized also accepts that JWT's role
 # because the env SUPABASE_SERVICE_ROLE_KEY string can drift after key migration.
+# Do not set verify_jwt = false unless isAuthorized stops trusting payload role.
 [functions.send-push-notification]
 verify_jwt = true
