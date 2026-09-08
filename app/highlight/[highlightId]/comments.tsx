@@ -10,8 +10,8 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 import { useAuth } from '@/contexts/auth-context';
 import { Screen } from '@/components/ui/Screen';
 import { Header } from '@/components/ui/Header';
@@ -29,6 +29,9 @@ import {
 import { track } from '@/lib/analytics';
 import { logger } from '@/lib/logger';
 import { TierBadge } from '@/components/ui/TierBadge';
+
+/** Same offset as DM chat: Screen safe-area + Header, KAV sits below Header. */
+const KEYBOARD_AVOID_OFFSET = 88;
 
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString);
@@ -50,7 +53,7 @@ export default function HighlightCommentsScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors } = useThemeColors();
-  const scrollBottomPadding = useScrollContentBottomPadding();
+  const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
 
   const [comments, setComments] = useState<HighlightComment[]>([]);
@@ -162,8 +165,8 @@ export default function HighlightCommentsScreen() {
       <Header title="Comments" showBack />
       <KeyboardAvoidingView
         style={[styles.container, { backgroundColor: colors.bg }]}
-        behavior={Platform.OS === 'ios' ? 'position' : 'padding'}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={KEYBOARD_AVOID_OFFSET}
       >
         <View style={[styles.listContainer, { backgroundColor: colors.bg }]}>
           {loading ? (
@@ -182,6 +185,8 @@ export default function HighlightCommentsScreen() {
               keyExtractor={item => item.id}
               renderItem={renderComment}
               style={{ backgroundColor: colors.bg }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               contentContainerStyle={[
                 styles.listContent,
                 comments.length === 0 && styles.emptyList,
@@ -202,62 +207,63 @@ export default function HighlightCommentsScreen() {
           )}
         </View>
 
-        {/* Input bar */}
         <View
           style={[
             styles.inputContainer,
             {
               backgroundColor: colors.bg,
               borderTopColor: colors.border,
-              paddingBottom: scrollBottomPadding,
+              paddingBottom: Spacing.sm + insets.bottom,
             },
           ]}
         >
           {user ? (
-            <>
+            <View style={styles.inputColumn}>
               {replyingToId ? (
                 <TouchableOpacity onPress={() => setReplyingToId(null)} style={styles.cancelReply}>
                   <Text style={[styles.cancelReplyText, { color: colors.textMuted }]}>Cancel reply</Text>
                 </TouchableOpacity>
               ) : null}
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: colors.surfaceAlt,
-                    color: colors.text,
-                    borderColor: colors.border,
-                  },
-                ]}
-                placeholder="Add a comment..."
-                placeholderTextColor={colors.textMuted}
-                value={inputText}
-                onChangeText={setInputText}
-                multiline
-                maxLength={500}
-                editable={!sending}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.sendButton,
-                  {
-                    backgroundColor: inputText.trim() ? colors.primary : colors.surfaceAlt,
-                  },
-                ]}
-                onPress={handleSend}
-                disabled={!inputText.trim() || sending}
-              >
-                {sending ? (
-                  <ActivityIndicator size="small" color={colors.textOnPrimary} />
-                ) : (
-                  <IconSymbol
-                    name="paperplane.fill"
-                    size={18}
-                    color={inputText.trim() ? colors.textOnPrimary : colors.textMuted}
-                  />
-                )}
-              </TouchableOpacity>
-            </>
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: colors.surfaceAlt,
+                      color: colors.text,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  placeholder="Add a comment..."
+                  placeholderTextColor={colors.textMuted}
+                  value={inputText}
+                  onChangeText={setInputText}
+                  multiline
+                  maxLength={500}
+                  editable={!sending}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.sendButton,
+                    {
+                      backgroundColor: inputText.trim() ? colors.primary : colors.surfaceAlt,
+                    },
+                  ]}
+                  onPress={handleSend}
+                  disabled={!inputText.trim() || sending}
+                >
+                  {sending ? (
+                    <ActivityIndicator size="small" color={colors.textOnPrimary} />
+                  ) : (
+                    <IconSymbol
+                      name="paperplane.fill"
+                      size={18}
+                      color={inputText.trim() ? colors.textOnPrimary : colors.textMuted}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
           ) : (
             <TouchableOpacity
               style={styles.signInPrompt}
@@ -328,11 +334,17 @@ const styles = StyleSheet.create({
   cancelReply: { marginBottom: 4 },
   cancelReplyText: { fontSize: 12 },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
     padding: Spacing.sm,
     paddingTop: Spacing.sm,
     borderTopWidth: 1,
+    flexShrink: 0,
+  },
+  inputColumn: {
+    width: '100%',
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     gap: Spacing.sm,
   },
   input: {

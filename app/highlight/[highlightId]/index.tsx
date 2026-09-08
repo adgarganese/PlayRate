@@ -13,12 +13,12 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { HighlightDetailVideo } from '@/components/HighlightDetailVideo';
 import { useResolvedMediaUri } from '@/hooks/useResolvedMediaUri';
-import { useScrollContentBottomPadding } from '@/hooks/use-scroll-bottom-padding';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 import { resolveMediaUrlForPlayback } from '@/lib/storage-media-url';
@@ -127,6 +127,8 @@ function formatTimeAgo(dateString: string): string {
   return date.toLocaleDateString();
 }
 
+const KEYBOARD_AVOID_OFFSET = 88;
+
 /**
  * Highlight detail on the root stack (sibling of tabs).
  * Back / swipe returns to the screen that opened it (Home, Highlights, profile, etc.).
@@ -153,7 +155,7 @@ export default function HighlightDetailInStackScreen() {
   const [commentText, setCommentText] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
-  const scrollBottomPadding = useScrollContentBottomPadding();
+  const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const [detailMediaLayout, setDetailMediaLayout] = useState(computeDetailMediaLayout);
 
@@ -484,12 +486,14 @@ export default function HighlightDetailInStackScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={KEYBOARD_AVOID_OFFSET}
       >
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPadding + Spacing.lg }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Spacing.lg }]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <Card style={styles.card}>
             <TouchableOpacity
@@ -616,13 +620,26 @@ export default function HighlightDetailInStackScreen() {
             ) : (
               comments.map((item) => <View key={item.id}>{renderComment({ item })}</View>)
             )}
+          </View>
+        </ScrollView>
+        <View
+          style={[
+            styles.commentInputBar,
+            {
+              backgroundColor: colors.bg,
+              borderTopColor: colors.border,
+              paddingBottom: Spacing.sm + insets.bottom,
+            },
+          ]}
+        >
             {user ? (
-              <View style={styles.commentInputRow}>
+              <View style={styles.commentInputColumn}>
                 {replyingToId ? (
                   <TouchableOpacity onPress={() => setReplyingToId(null)} style={styles.cancelReply}>
                     <Text style={[styles.cancelReplyText, { color: colors.textMuted }]}>Cancel reply</Text>
                   </TouchableOpacity>
                 ) : null}
+                <View style={styles.commentInputRow}>
                 <TextInput
                   style={[styles.commentInput, { backgroundColor: colors.surfaceAlt, color: colors.text, borderColor: colors.border }]}
                   placeholder="Add a comment..."
@@ -644,14 +661,14 @@ export default function HighlightDetailInStackScreen() {
                     <IconSymbol name="paperplane.fill" size={18} color={commentText.trim() ? '#fff' : colors.textMuted} />
                   )}
                 </TouchableOpacity>
+                </View>
               </View>
             ) : (
               <TouchableOpacity onPress={() => router.push('/sign-in')}>
                 <Text style={[styles.signInToComment, { color: colors.primary }]}>Sign in to comment</Text>
               </TouchableOpacity>
             )}
-          </View>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -693,6 +710,13 @@ const styles = StyleSheet.create({
   commentsSection: { marginHorizontal: Spacing.md, marginTop: Spacing.lg, paddingTop: Spacing.md, borderTopWidth: 1 },
   commentsSectionTitle: { ...Typography.bodyBold, marginBottom: Spacing.sm },
   commentsLoader: { marginVertical: Spacing.md },
+  commentInputBar: {
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    flexShrink: 0,
+  },
+  commentInputColumn: { width: '100%' },
   commentRow: { flexDirection: 'row', marginBottom: Spacing.md },
   commentContent: { flex: 1, marginLeft: Spacing.sm },
   commentHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
