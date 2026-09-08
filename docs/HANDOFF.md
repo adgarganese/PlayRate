@@ -81,11 +81,11 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 ## 4. Open work
 
-**Now (order: origin has the lock-screen commits → comment composer → visual *list*, then polish commits).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+**Now (order: comments composer + visual polish are on git; next is notification RPC inventory).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
-2. **Highlight comments (broken):** composer text box not visible. `app/highlight/[highlightId]/comments.tsx` — iOS `KeyboardAvoidingView` `behavior="position"`. Legacy redirect file too.
-3. **Visual audit** produces a *list*, not a commit-per-spot. Then one polish commit. Screens: home, courts grid, court detail, Find Courts, profile, highlights. Include: shrink Find Courts empty overlay / hide when courts in view; court-card check-in opposite ratings; center profile header icons.
+2. **Highlight comments:** composer pinned on main (not in binary 29). Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
+3. **Visual polish (this session):** Find Courts empty/loading is a compact map chip (hidden when pins exist); court detail check-in sits opposite ratings with a larger `location.fill` icon (same check-in tap; not on the grid card); Header title-row centers Profile bell/gear and the Courts/Highlights right icons. Eyeball leftovers (photo placeholders, `#38BDF8` contrast, card proportions) stay in Soon.
 4. **Client-only notification RPCs** (same silent-fail class as DMs before the message trigger): `highlight_like` and `highlight_comment` (`lib/highlights.ts`), `new_follower` (`hooks/useFollow.ts`), `run_join` (`lib/runs.ts`), `cosign` (`lib/recap.ts`). Likes *did* insert tonight (21:09) so some client RPCs work; DMs did not. Don’t assume the RPC is globally dead. Optional belt: partial unique index on `notifications (user_id, type, entity_id) WHERE type = 'new_message'` so 29’s still-shipped client call cannot double-push if it starts succeeding.
 5. Other Edge Functions that string-compare `SUPABASE_SERVICE_ROLE_KEY` — same env drift possible. Only `send-push-notification` exists in repo today.
 

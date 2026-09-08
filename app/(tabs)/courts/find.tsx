@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform, Pressable } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, PROVIDER_DEFAULT, Region, Callout } from 'react-native-maps';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
@@ -13,8 +13,6 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography, Radius } from '@/constants/theme';
 import { googlePlacesApiKey } from '@/lib/config';
 import { logger } from '@/lib/logger';
-import { ErrorState } from '@/components/ui/ErrorState';
-import { EmptyState } from '@/components/ui/EmptyState';
 
 // Default region (can be customized - here using a central US location as fallback)
 const DEFAULT_REGION: Region = {
@@ -279,41 +277,59 @@ export default function FindCourtsScreen() {
           ))}
         </MapView>
 
-        {/* Loading Overlay - bottom inset so it never covers the tab bar (TestFlight reliability) */}
-        {loading && (
-          <View style={[styles.loadingOverlay, { bottom: tabBarHeight }]} pointerEvents="box-none">
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading courts...</Text>
+        {loading ? (
+          <View
+            style={[styles.resultsBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            pointerEvents="none"
+          >
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.resultsText, { color: colors.textMuted }]}>Loading…</Text>
           </View>
-        )}
+        ) : null}
 
-        {!loading && error && courts.length === 0 && (
-          <View style={[styles.errorOverlay, { bottom: tabBarHeight }]} pointerEvents="box-none">
-            <ErrorState onRetry={() => void loadCourtsForRegion(region)} />
-          </View>
-        )}
-
-        {/* Results Count */}
-        {!loading && courts.length > 0 && (
-          <View style={[styles.resultsBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.resultsText, { color: colors.textMuted }]}>{courts.length} court{courts.length !== 1 ? 's' : ''} found</Text>
-          </View>
-        )}
-
-        {/* No Results */}
-        {!loading && courts.length === 0 && !error && (
-          <View style={[styles.noResultsWrap, { bottom: tabBarHeight }]} pointerEvents="box-none">
-            <View style={[styles.noResultsContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <EmptyState
-                title="No courts found nearby. Add one!"
-                subtitle="Pan the map or search another area — or add a court if you know a spot we're missing."
-                actionLabel="Add court"
-                onAction={() => router.push('/courts/new')}
-                icon="mappin.and.ellipse"
-              />
+        {!loading && error && courts.length === 0 ? (
+          <View style={[styles.mapBanner, { bottom: tabBarHeight + Spacing.md }]} pointerEvents="box-none">
+            <View style={[styles.mapBannerInner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.mapBannerText, { color: colors.text }]} numberOfLines={2}>
+                Could not load courts for this area.
+              </Text>
+              <Pressable
+                onPress={() => void loadCourtsForRegion(region)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading courts"
+              >
+                <Text style={[styles.mapBannerAction, { color: colors.primary }]}>Retry</Text>
+              </Pressable>
             </View>
           </View>
-        )}
+        ) : null}
+
+        {!loading && courts.length > 0 ? (
+          <View style={[styles.resultsBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.resultsText, { color: colors.textMuted }]}>
+              {courts.length} court{courts.length !== 1 ? 's' : ''} found
+            </Text>
+          </View>
+        ) : null}
+
+        {!loading && courts.length === 0 && !error ? (
+          <View style={[styles.mapBanner, { bottom: tabBarHeight + Spacing.md }]} pointerEvents="box-none">
+            <View style={[styles.mapBannerInner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.mapBannerText, { color: colors.text }]} numberOfLines={2}>
+                No courts in this view
+              </Text>
+              <Pressable
+                onPress={() => router.push('/courts/new')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Add court"
+              >
+                <Text style={[styles.mapBannerAction, { color: colors.primary }]}>Add court</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </View>
     </Screen>
   );
@@ -373,34 +389,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  loadingText: {
-    ...Typography.body,
-  },
-  errorOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.md,
-  },
   resultsBadge: {
     position: 'absolute',
     top: Spacing.md,
     right: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: Radius.sm,
@@ -409,24 +404,27 @@ const styles = StyleSheet.create({
   resultsText: {
     ...Typography.mutedSmall,
   },
-  noResultsWrap: {
+  mapBanner: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
+    left: Spacing.md,
+    right: Spacing.md,
   },
-  noResultsContainer: {
-    alignSelf: 'stretch',
-    maxWidth: 400,
+  mapBannerInner: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.sm,
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
     borderRadius: Radius.md,
     borderWidth: 1,
+  },
+  mapBannerText: {
+    ...Typography.mutedSmall,
+    flex: 1,
+  },
+  mapBannerAction: {
+    ...Typography.bodyBold,
+    fontSize: 14,
   },
   calloutContainer: {
     width: 200,

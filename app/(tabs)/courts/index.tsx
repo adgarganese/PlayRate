@@ -314,7 +314,6 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: -Spacing.sm,
     gap: Spacing.xs,
   },
   headerIconButton: {

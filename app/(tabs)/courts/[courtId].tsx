@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Platform, Alert, Pressable, Modal, ScrollView, TouchableOpacity, useWindowDimensions, LayoutAnimation, Share, TextInput, type ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, Platform, Alert, Pressable, Modal, ScrollView, TouchableOpacity, useWindowDimensions, LayoutAnimation, Share, TextInput, ActivityIndicator, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -802,8 +802,9 @@ export default function CourtDetailScreen() {
                 </Pressable>
               )}
 
-              {/* 2. META ROW: Rating · Check-ins today */}
+              {/* 2. META ROW: Rating left · check-in right */}
               <View style={styles.metaRow}>
+                <View style={styles.metaLeft}>
                 <Pressable
                   onPress={(e) => {
                     e.stopPropagation();
@@ -828,6 +829,43 @@ export default function CourtDetailScreen() {
                     </Text>
                   </>
                 )}
+                </View>
+                {user ? (
+                  userCheckIn ? (
+                    <View
+                      style={styles.metaCheckIn}
+                      accessibilityRole="text"
+                      accessibilityLabel={`Checked in ${formatCheckInTime(userCheckIn)}`}
+                    >
+                      <IconSymbol name="location.fill" size={28} color={colors.accentOrange} />
+                      <Text style={[styles.metaCheckInLabel, { color: colors.text }]} numberOfLines={1}>
+                        Checked in · {formatCheckInTime(userCheckIn)}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void handleCheckIn();
+                      }}
+                      disabled={checkingIn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Check In"
+                      style={({ pressed }) => [
+                        styles.metaCheckIn,
+                        (pressed || checkingIn) && styles.metaCheckInPressed,
+                      ]}
+                    >
+                      {checkingIn ? (
+                        <ActivityIndicator size="small" color={colors.accentOrange} />
+                      ) : (
+                        <IconSymbol name="location.fill" size={28} color={colors.accentOrange} />
+                      )}
+                      <Text style={[styles.metaCheckInLabel, { color: colors.accentOrange }]}>Check In</Text>
+                    </Pressable>
+                  )
+                ) : null}
               </View>
 
               {/* 3. SPORTS CHIPS (only sports visible when collapsed) */}
@@ -841,7 +879,7 @@ export default function CourtDetailScreen() {
                 </View>
               )}
 
-              {/* 4. ACTIONS — single row: Directions, Share, check-in / DM / checked-in, optional Suggest, DM when signed in */}
+              {/* 4. ACTIONS — Directions, Share, optional Suggest, DM */}
               <View style={styles.actionsGridWrap}>
                 <View style={styles.actionsRow}>
                   <ProfileNavPill
@@ -876,29 +914,7 @@ export default function CourtDetailScreen() {
                       accessibilityLabel="Send via DM"
                       accessibilityRole="button"
                     />
-                  ) : !userCheckIn ? (
-                    <ProfileNavPill
-                      icon="checkmark.circle.fill"
-                      label="Check In"
-                      onPress={handleCheckIn}
-                      loading={checkingIn}
-                      disabled={checkingIn}
-                      style={styles.actionGridItem}
-                      accent="checkIn"
-                      showChevron={false}
-                      iconSize={22}
-                      layout="vertical"
-                    />
-                  ) : (
-                    <View style={[styles.actionGridItem, styles.checkedInIndicator, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                      <View style={styles.checkedInIconWrap}>
-                        <IconSymbol name="checkmark.circle.fill" size={22} color={colors.accentOrange} />
-                      </View>
-                      <Text style={[styles.checkedInText, { color: colors.text }]} numberOfLines={2}>
-                        Checked in · {formatCheckInTime(userCheckIn)}
-                      </Text>
-                    </View>
-                  )}
+                  ) : null}
                   {user && showSuggestEdit ? (
                     <ProfileNavPill
                       icon="pencil"
@@ -1439,9 +1455,17 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
     marginBottom: Spacing.md,
+  },
+  metaLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    flex: 1,
+    minWidth: 0,
+    gap: Spacing.xs,
   },
   metaItem: {
     flexDirection: 'row',
@@ -1456,6 +1480,21 @@ const styles = StyleSheet.create({
   metaDivider: {
     ...Typography.mutedSmall,
     marginHorizontal: Spacing.xs,
+  },
+  metaCheckIn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    flexShrink: 0,
+    minHeight: 44,
+  },
+  metaCheckInPressed: {
+    opacity: 0.6,
+  },
+  metaCheckInLabel: {
+    ...Typography.bodyBold,
+    fontSize: 14,
+    maxWidth: 140,
   },
   chipsContainer: {
     flexDirection: 'row',
@@ -1490,30 +1529,6 @@ const styles = StyleSheet.create({
   actionGridItem: {
     flex: 1,
     minWidth: 0,
-  },
-  checkedInIconWrap: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkedInIndicator: {
-    flex: 1,
-    minWidth: 0,
-    alignSelf: 'stretch',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.xs,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-  },
-  checkedInText: {
-    ...Typography.mutedSmall,
-    fontWeight: '500',
-    textAlign: 'center',
-    width: '100%',
   },
   editSuggestRow: {
     flexDirection: 'row',

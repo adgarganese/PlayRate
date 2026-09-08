@@ -686,6 +686,7 @@ export default function HighlightsFeedScreen() {
 
   const headerSearchControl = (
     <TouchableOpacity
+      style={styles.headerSearchButton}
       onPress={() => (searchUiOpen ? dismissSearchUi() : openSearchUi())}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
@@ -864,6 +865,12 @@ export default function HighlightsFeedScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerSearchButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerCancel: {
     fontWeight: '600',
     paddingVertical: 4,

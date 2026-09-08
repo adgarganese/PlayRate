@@ -253,7 +253,7 @@ export default function ProfileScreen() {
                 accessibilityLabel="Account & Security"
                 accessibilityRole="button"
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                style={[styles.headerIconButton, { zIndex: 11, marginLeft: Spacing.sm }]}
+                style={[styles.headerIconButton, { zIndex: 11 }]}
               >
                 <IconSymbol name="gearshape.fill" size={24} color={colors.textMuted} />
               </TouchableOpacity>
@@ -280,7 +280,7 @@ export default function ProfileScreen() {
               accessibilityLabel="Account & Security"
               accessibilityRole="button"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={[styles.headerIconButton, { zIndex: 11, marginLeft: Spacing.sm }]}
+              style={[styles.headerIconButton, { zIndex: 11 }]}
             >
               <IconSymbol name="gearshape.fill" size={24} color={colors.textMuted} />
             </TouchableOpacity>
@@ -454,7 +454,13 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   scrollContent: { paddingBottom: Spacing.xl },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  headerIconButton: { padding: Spacing.sm, marginTop: -Spacing.sm },
+  headerIconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.sm,
+  },
   heroCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
   heroTop: { flexDirection: 'row', alignItems: 'center', paddingBottom: Spacing.lg },
   heroTextWrap: { flex: 1, marginLeft: Spacing.lg, minWidth: 0 },

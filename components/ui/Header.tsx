@@ -71,66 +71,72 @@ export function Header({
     borderBottomColor: borderColorAtOpacity(colors.border, 0.5),
   };
 
+  const subtitleEl = !customTitle && subtitle ? (
+    <Text
+      style={[
+        subtitleTagline ? styles.subtitleTagline : [Typography.muted, styles.subtitle],
+        { color: colors.textMuted },
+        showBack ? styles.subtitleIndent : null,
+      ]}
+    >
+      {subtitle}
+    </Text>
+  ) : null;
+
   return (
     <View style={[styles.container, headerChrome, style]}>
-      <View style={styles.leftSection}>
-        {showBack && (
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={handleBack}
-            accessibilityLabel="Go back"
-            accessibilityRole="button"
-            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-          >
-            <IconSymbol
-              name="chevron.left"
-              size={12}
-              color={colors.text}
-            />
-          </TouchableOpacity>
-        )}
-        <View style={styles.titleContainer}>
-          {customTitle ?? (
-            <>
+      <View style={styles.titleRow}>
+        <View style={styles.leftSection}>
+          {showBack && (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={handleBack}
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <IconSymbol
+                name="chevron.left"
+                size={12}
+                color={colors.text}
+              />
+            </TouchableOpacity>
+          )}
+          <View style={styles.titleContainer}>
+            {customTitle ?? (
               <Text
                 style={[Typography.h2, styles.title, { color: colors.text }]}
                 accessibilityRole="header"
               >
                 {title}
               </Text>
-              {subtitle && (
-                <Text
-                  style={
-                    subtitleTagline
-                      ? [styles.subtitleTagline, { color: colors.textMuted }]
-                      : [Typography.muted, styles.subtitle, { color: colors.textMuted }]
-                  }
-                >
-                  {subtitle}
-                </Text>
-              )}
-            </>
-          )}
+            )}
+          </View>
         </View>
+        {rightContent ? <View style={styles.rightCluster}>{rightContent}</View> : null}
       </View>
-      {rightContent}
+      {subtitleEl}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     marginBottom: Spacing.xl,
     paddingTop: Spacing.sm,
     minHeight: 56,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
   },
   leftSection: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
   },
   backButton: {
     width: 44,
@@ -141,12 +147,17 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
   },
   title: {
-    marginBottom: Spacing.xs,
+    marginBottom: 0,
   },
   subtitle: {
-    marginTop: 0,
+    marginTop: Spacing.xs,
+  },
+  subtitleIndent: {
+    paddingLeft: 44 + Spacing.sm,
   },
   /** Matches PlayRatePlaceholder tagline: fontSize 14, fontWeight 500, letterSpacing 0.5, marginTop Spacing.sm */
   subtitleTagline: {
@@ -156,11 +167,15 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
     includeFontPadding: false,
   },
+  rightCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
   rightButton: {
     minWidth: 44,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -Spacing.sm,
   },
 });

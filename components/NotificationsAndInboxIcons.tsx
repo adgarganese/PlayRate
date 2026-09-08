@@ -65,8 +65,11 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   touchable: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: Spacing.sm,
-    marginTop: -Spacing.sm,
   },
   pressed: {
     opacity: 0.7,
