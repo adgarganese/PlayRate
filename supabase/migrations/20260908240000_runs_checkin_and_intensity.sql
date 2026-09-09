@@ -4,8 +4,9 @@
 -- Intensity: Shootaround / Casual / Competitive / Elite. Keep `balanced` in the
 -- CHECK so TestFlight 29's Schedule run insert still succeeds.
 --
--- APPLY VIA SQL EDITOR. Additive; 29 does not send run_id or new skill_band
--- values. Do not drop `balanced` until 29 is retired.
+-- Applied via SQL Editor 2026-09-08 (Success. No rows returned). Additive; 29
+-- does not send run_id or new skill_band values. Do not drop `balanced` until
+-- 29 is retired.
 
 ALTER TABLE public.check_ins
   ADD COLUMN IF NOT EXISTS run_id uuid REFERENCES public.runs(id) ON DELETE SET NULL;

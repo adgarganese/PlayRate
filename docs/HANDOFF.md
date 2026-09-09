@@ -80,10 +80,10 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 ## 4. Open work
 
-**Now (order: apply runs SQL in Editor so 30’s Elite/Shootaround + check-in link work; social-notify SQL still waits — 30 still has client RPCs).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+**Now (runs SQL applied 2026-09-08; social-notify SQL still waits — 30 still has client RPCs).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
-2. **Highlight comments:** composer pinned on main (not in binary 29). Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
+2. **Highlight comments:** composer pinned; in binary 30. Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
 3. **Visual polish (this session):** Find Courts empty/loading is a compact map chip (hidden when pins exist); court detail check-in sits opposite ratings with a larger `location.fill` icon (same check-in tap; not on the grid card); Header title-row centers Profile bell/gear and the Courts/Highlights right icons. Eyeball leftovers (photo placeholders, `#38BDF8` contrast, card proportions) stay in Soon.
 4. **Client-only notification RPCs → DB triggers (ready, not applied).** Same silent-fail class as DMs. RPC is **not** globally dead (likes inserted 2026-09-08 21:09). Inventory:
 
@@ -105,7 +105,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Next product (in progress)**
 
-- **Runs** stays the name. Check-in = “I am at this court now.” A Run = who is playing. Court detail has a Who’s playing section + Start a run (Shootaround / Casual / Competitive / Elite). `balanced` still allowed in DB so 29 Schedule run inserts do not break. Migration `20260908240000_runs_checkin_and_intensity.sql` — **apply via SQL Editor** (additive `check_ins.run_id`, `link_check_in_run` RPC, expanded skill_band CHECK). Joining a run attaches today’s check-in when that RPC exists. Recap stays cosigns, not W/L. `skill_min` / `skill_max` still written, hidden on the run screen.
+- **Runs** stays the name. Check-in = “I am at this court now.” A Run = who is playing. Court detail has a Who’s playing section + Start a run (Shootaround / Casual / Competitive / Elite). `balanced` still allowed in DB so 29 Schedule run inserts do not break. Migration `20260908240000_runs_checkin_and_intensity.sql` — **applied via SQL Editor 2026-09-08** (`check_ins.run_id`, `link_check_in_run` RPC, expanded skill_band CHECK). Joining a run attaches today’s check-in. Recap stays cosigns, not W/L. `skill_min` / `skill_max` still written, hidden on the run screen.
 
 **Later (inventory 2026-09-08 — do not start)**
 
