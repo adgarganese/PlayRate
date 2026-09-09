@@ -28,11 +28,35 @@ export type NextBestRun = {
   run: RunRow;
 };
 
-const SKILL_BAND_LABELS: Record<string, string> = {
+/** Display labels. `balanced` is legacy DB only — never insert it from new JS. */
+export const RUN_INTENSITY_LABELS: Record<string, string> = {
+  shootaround: 'Shootaround',
   casual: 'Casual',
-  balanced: 'Balanced',
+  balanced: 'Casual',
   competitive: 'Competitive',
+  elite: 'Elite',
 };
+
+export const RUN_INTENSITY_OPTIONS = [
+  'shootaround',
+  'casual',
+  'competitive',
+  'elite',
+] as const;
+
+export type RunIntensity = (typeof RUN_INTENSITY_OPTIONS)[number];
+
+const INTENSITY_SKILL_RANGE: Record<RunIntensity, { min: number; max: number }> = {
+  shootaround: { min: 1, max: 4 },
+  casual: { min: 2, max: 6 },
+  competitive: { min: 5, max: 8 },
+  elite: { min: 7, max: 10 },
+};
+
+export function formatRunIntensityLabel(skillBand: string | null | undefined): string {
+  if (!skillBand) return RUN_INTENSITY_LABELS.casual;
+  return RUN_INTENSITY_LABELS[skillBand] ?? skillBand;
+}
 
 /**
  * Format run start time for display: "Tonight 7:00 PM", "Tomorrow 9:00 AM", "Wed 3:00 PM"
@@ -108,7 +132,7 @@ export async function fetchUpcomingRuns(): Promise<{
     creator_id: r.creator_id,
     starts_at: r.starts_at,
     ends_at: r.ends_at,
-    skill_band: r.skill_band ?? 'balanced',
+    skill_band: r.skill_band ?? 'casual',
     skill_min: r.skill_min ?? null,
     skill_max: r.skill_max ?? null,
     capacity: r.capacity ?? 10,
@@ -211,7 +235,7 @@ export function scoreAndPickTopRuns(
     id: run.id,
     courtName: run.court_name ?? 'Unknown court',
     startTimeLabel: formatRunTimeLabel(run.starts_at),
-    skillBandLabel: SKILL_BAND_LABELS[run.skill_band] ?? run.skill_band,
+    skillBandLabel: formatRunIntensityLabel(run.skill_band),
     spotsLeft:
       run.capacity > 0
         ? Math.max(0, run.capacity - (participantCountByRunId[run.id] ?? 0))
@@ -245,7 +269,7 @@ export async function fetchRunById(runId: string): Promise<{
     creator_id: runData.creator_id,
     starts_at: runData.starts_at,
     ends_at: runData.ends_at,
-    skill_band: runData.skill_band ?? 'balanced',
+    skill_band: runData.skill_band ?? 'casual',
     skill_min: runData.skill_min ?? null,
     skill_max: runData.skill_max ?? null,
     capacity: runData.capacity ?? 10,
@@ -289,10 +313,14 @@ export async function joinRun(runId: string, userId: string): Promise<{ error: E
 
   const { data: run } = await supabase
     .from('runs')
-    .select('creator_id')
+    .select('creator_id, court_id')
     .eq('id', runId)
     .maybeSingle();
   const creatorId = run?.creator_id as string | undefined;
+  const courtId = run?.court_id as string | undefined;
+  if (courtId) {
+    await linkTodayCheckInToRun(courtId, runId);
+  }
   if (creatorId && creatorId !== userId) {
     const { data: joiner } = await supabase
       .from('profiles')
@@ -315,8 +343,8 @@ export async function joinRun(runId: string, userId: string): Promise<{ error: E
 }
 
 /**
- * Creates a scheduled run (RLS: creator must be the signed-in user). Emits `run_created` on success.
- * Used from court detail for staff/creators; adjust defaults when a full scheduling UI ships.
+ * Creates a run at a court. Creator is auto-joined. Intensity labels:
+ * Shootaround, Casual, Competitive, Elite (`balanced` is legacy display-only).
  */
 export async function createScheduledRun(opts: {
   courtId: string;
@@ -324,12 +352,13 @@ export async function createScheduledRun(opts: {
   sport: string;
   startsAt: Date;
   endsAt: Date;
-  skillBand?: 'casual' | 'balanced' | 'competitive';
+  skillBand?: RunIntensity;
   skillMin?: number | null;
   skillMax?: number | null;
   capacity?: number;
 }): Promise<{ runId: string | null; error: Error | null }> {
-  const skill_band = opts.skillBand ?? 'balanced';
+  const skill_band = opts.skillBand ?? 'casual';
+  const range = INTENSITY_SKILL_RANGE[skill_band];
   const { data, error } = await supabase
     .from('runs')
     .insert({
@@ -338,8 +367,8 @@ export async function createScheduledRun(opts: {
       starts_at: opts.startsAt.toISOString(),
       ends_at: opts.endsAt.toISOString(),
       skill_band,
-      skill_min: opts.skillMin ?? 3,
-      skill_max: opts.skillMax ?? 7,
+      skill_min: opts.skillMin ?? range.min,
+      skill_max: opts.skillMax ?? range.max,
       capacity: opts.capacity ?? 10,
       notes: null,
       status: 'scheduled',
@@ -358,6 +387,16 @@ export async function createScheduledRun(opts: {
     sport: opts.sport,
     scheduled_for_utc: opts.startsAt.toISOString(),
   });
+  const { error: joinError } = await supabase.from('run_participants').insert({
+    run_id: data.id,
+    user_id: opts.creatorId,
+    join_status: 'joined',
+    role: 'organizer',
+  });
+  if (joinError && __DEV__) {
+    console.warn('[runs] auto-join creator', joinError);
+  }
+  await linkTodayCheckInToRun(opts.courtId, data.id as string);
   return { runId: data.id as string, error: null };
 }
 
@@ -371,4 +410,92 @@ export async function leaveRun(runId: string, userId: string): Promise<{ error: 
   if (error) return { error: new Error(error.message) };
   track('run_left', { run_id: runId });
   return { error: null };
+}
+
+export type CourtActiveRun = {
+  run: RunRow;
+  participantCount: number;
+  isLive: boolean;
+};
+
+/**
+ * Runs at this court that are live or starting within 8 hours.
+ * Check-in stays separate: this list is "who's playing."
+ */
+export async function fetchActiveRunsForCourt(courtId: string): Promise<CourtActiveRun[]> {
+  const now = new Date();
+  const horizon = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+
+  const { data, error } = await supabase
+    .from('runs')
+    .select(
+      'id, court_id, creator_id, starts_at, ends_at, skill_band, skill_min, skill_max, capacity, notes, status, courts(name)'
+    )
+    .eq('court_id', courtId)
+    .eq('status', 'scheduled')
+    .gt('ends_at', now.toISOString())
+    .lt('starts_at', horizon.toISOString())
+    .order('starts_at', { ascending: true })
+    .limit(8);
+
+  if (error || !data?.length) return [];
+
+  const runs: RunRow[] = data.map((r: {
+    id: string;
+    court_id: string | null;
+    creator_id: string;
+    starts_at: string;
+    ends_at: string;
+    skill_band: string | null;
+    skill_min: number | null;
+    skill_max: number | null;
+    capacity: number | null;
+    notes: string | null;
+    status: string;
+    courts?: { name: string } | null;
+  }) => ({
+    id: r.id,
+    court_id: r.court_id ?? null,
+    creator_id: r.creator_id,
+    starts_at: r.starts_at,
+    ends_at: r.ends_at,
+    skill_band: r.skill_band ?? 'casual',
+    skill_min: r.skill_min ?? null,
+    skill_max: r.skill_max ?? null,
+    capacity: r.capacity ?? 10,
+    notes: r.notes ?? null,
+    status: r.status,
+    court_name: r.courts?.name ?? null,
+  }));
+
+  const runIds = runs.map((x) => x.id);
+  const { data: participantsData } = await supabase
+    .from('run_participants')
+    .select('run_id')
+    .in('run_id', runIds)
+    .eq('join_status', 'joined');
+
+  const countById: Record<string, number> = {};
+  runIds.forEach((id) => (countById[id] = 0));
+  participantsData?.forEach((p: { run_id: string }) => {
+    countById[p.run_id] = (countById[p.run_id] ?? 0) + 1;
+  });
+
+  const nowMs = now.getTime();
+  return runs.map((run) => ({
+    run,
+    participantCount: countById[run.id] ?? 0,
+    isLive: new Date(run.starts_at).getTime() <= nowMs && new Date(run.ends_at).getTime() > nowMs,
+  }));
+}
+
+/** Attach today's check-in at this court to a run. No-op if not checked in or RPC not applied yet. */
+export async function linkTodayCheckInToRun(courtId: string, runId: string): Promise<void> {
+  const { error } = await supabase.rpc('link_check_in_run', {
+    p_court_id: courtId,
+    p_run_id: runId,
+  });
+  if (error && __DEV__) {
+    console.warn('[runs] link_check_in_run', error.message);
+  }
 }

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
-import { fetchRunById, formatRunTimeLabel, isUserParticipantInRun, joinRun, leaveRun } from '@/lib/runs';
+import { fetchRunById, formatRunIntensityLabel, formatRunTimeLabel, isUserParticipantInRun, joinRun, leaveRun } from '@/lib/runs';
 import type { RunRow } from '@/lib/runs';
 import { getNotificationPrefs, updateRunReminderPrefs } from '@/lib/notification-prefs';
 import { Screen } from '@/components/ui/Screen';
@@ -16,12 +16,6 @@ import { useThemeColors } from '@/contexts/theme-context';
 import { Spacing, Typography } from '@/constants/theme';
 import { trackOnce } from '@/lib/analytics';
 import { logger } from '@/lib/logger';
-
-const SKILL_BAND_LABELS: Record<string, string> = {
-  casual: 'Casual',
-  balanced: 'Balanced',
-  competitive: 'Competitive',
-};
 
 export default function RunDetailScreen() {
   const { runId } = useLocalSearchParams<{ runId: string }>();
@@ -202,7 +196,7 @@ export default function RunDetailScreen() {
     minute: '2-digit',
     hour12: true,
   });
-  const skillLabel = SKILL_BAND_LABELS[run.skill_band] ?? run.skill_band;
+  const skillLabel = formatRunIntensityLabel(run.skill_band);
   const spotsLeft = run.capacity > 0 ? Math.max(0, run.capacity - participantCount) : null;
 
   return (
@@ -218,7 +212,6 @@ export default function RunDetailScreen() {
           </Text>
           <Text style={[Typography.muted, { color: colors.textMuted, marginBottom: Spacing.xs }]}>
             {skillLabel}
-            {run.skill_min != null && run.skill_max != null && ` • Skill ${run.skill_min}–${run.skill_max}`}
           </Text>
           {spotsLeft != null && (
             <Text style={[Typography.mutedSmall, { color: colors.textMuted }]}>

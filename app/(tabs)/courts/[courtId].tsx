@@ -27,7 +27,7 @@ import {
   type CourtPhoto
 } from '@/lib/courts';
 import { fetchIsStaff, isCourtCreatedByUser } from '@/lib/court-permissions';
-import { createScheduledRun } from '@/lib/runs';
+import { createScheduledRun, fetchActiveRunsForCourt, formatRunIntensityLabel, formatRunTimeLabel, joinRun, RUN_INTENSITY_OPTIONS, type CourtActiveRun, type RunIntensity } from '@/lib/runs';
 import { Screen } from '@/components/ui/Screen';
 import { KeyboardScreen } from '@/components/ui/KeyboardScreen';
 import { DismissKeyboardView } from '@/components/ui/DismissKeyboardView';
@@ -110,6 +110,9 @@ export default function CourtDetailScreen() {
   // Rating modal (opened from main card rating row)
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [schedulingRun, setSchedulingRun] = useState(false);
+  const [activeRuns, setActiveRuns] = useState<CourtActiveRun[]>([]);
+  const [showStartRunModal, setShowStartRunModal] = useState(false);
+  const [startRunIntensity, setStartRunIntensity] = useState<RunIntensity>('casual');
 
   // Creator / staff: direct edit entry; others: suggest modal (RLS enforces on server).
   const [isStaff, setIsStaff] = useState(false);
@@ -153,6 +156,7 @@ export default function CourtDetailScreen() {
       loadPhotos();
       loadCheckInStatus();
       loadTodayCheckInCount();
+      loadActiveRuns();
       if (user) {
         checkFollowing();
       }
@@ -201,12 +205,12 @@ export default function CourtDetailScreen() {
   };
 
 
-  const handleScheduleQuickRun = async () => {
+  const handleStartRun = async (intensity: RunIntensity) => {
     if (!user?.id || !court?.id) return;
     setSchedulingRun(true);
     try {
       const sport = court.sports?.[0]?.trim() || 'unknown';
-      const startsAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const startsAt = new Date();
       const endsAt = new Date(startsAt.getTime() + 90 * 60 * 1000);
       const { runId, error } = await createScheduledRun({
         courtId: court.id,
@@ -214,16 +218,61 @@ export default function CourtDetailScreen() {
         sport,
         startsAt,
         endsAt,
-        skillBand: 'balanced',
+        skillBand: intensity,
       });
       if (error || !runId) {
-        Alert.alert('Schedule run', 'We could not create this run. Try again in a moment.');
+        Alert.alert('Start a run', 'We could not start this run. Try again in a moment.');
         return;
       }
+      setShowStartRunModal(false);
+      await loadActiveRuns();
       router.push(`/courts/run/${runId}` as any);
     } finally {
       setSchedulingRun(false);
     }
+  };
+
+  const promptAfterCheckIn = async () => {
+    if (!courtId || !user?.id) return;
+    const playing = await loadActiveRuns();
+    const live = playing.filter((item) => item.isLive);
+    if (live.length === 1) {
+      const session = live[0];
+      const label = formatRunIntensityLabel(session.run.skill_band);
+      Alert.alert(
+        "You're at the court",
+        `Join the ${label} run? You're already checked in.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Join run',
+            onPress: () => {
+              void (async () => {
+                const { error } = await joinRun(session.run.id, user.id);
+                if (error) {
+                  Alert.alert('Join run', 'Could not join this run. Open it to try again.');
+                  return;
+                }
+                router.push(`/courts/run/${session.run.id}` as any);
+              })();
+            },
+          },
+        ],
+      );
+      return;
+    }
+    if (playing.length === 0) {
+      Alert.alert(
+        "You're at the court",
+        "Start a run so others can see who's playing.",
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Start a run', onPress: () => setShowStartRunModal(true) },
+        ],
+      );
+      return;
+    }
+    Alert.alert('Checked in', 'Pick a run under Who\'s playing, or start one.');
   };
 
   const handleToggleFollow = async () => {
@@ -397,6 +446,19 @@ export default function CourtDetailScreen() {
       setTodayCheckInCount(count);
     } catch (err) {
       if (__DEV__) console.warn('[court-detail:loadTodayCheckInCount]', err);
+    }
+  };
+
+  const loadActiveRuns = async (): Promise<CourtActiveRun[]> => {
+    if (!courtId) return [];
+    try {
+      const playing = await fetchActiveRunsForCourt(courtId);
+      setActiveRuns(playing);
+      return playing;
+    } catch (err) {
+      if (__DEV__) console.warn('[court-detail:loadActiveRuns]', err);
+      setActiveRuns([]);
+      return [];
     }
   };
 
@@ -602,7 +664,7 @@ export default function CourtDetailScreen() {
         ]);
 
         hapticMedium();
-        Alert.alert('Success', result.message || 'Checked in!');
+        await promptAfterCheckIn();
       } else {
         Alert.alert('Check-In', 'Unable to check in. Please try again.');
       }
@@ -954,20 +1016,6 @@ export default function CourtDetailScreen() {
                     showChevron={false}
                     iconSize={22}
                   />
-                  <ProfileNavPill
-                    icon="figure.run"
-                    label="Schedule run"
-                    onPress={() => {
-                      void handleScheduleQuickRun();
-                    }}
-                    style={styles.editSuggestPill}
-                    showChevron={false}
-                    iconSize={22}
-                    loading={schedulingRun}
-                    disabled={schedulingRun}
-                    accessibilityLabel="Schedule a run at this court"
-                    accessibilityRole="button"
-                  />
                 </View>
               )}
 
@@ -1062,6 +1110,58 @@ export default function CourtDetailScreen() {
             )}
           </GradientCard>
         </AnimatedPressable>
+
+        <View style={[styles.sectionCard, { marginBottom: SECTION_GAP }]}>
+          <Card>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Who's playing</Text>
+            </View>
+            <Text style={[styles.whosPlayingHint, { color: colors.textMuted }]}>
+              Check-in means you are at this court. A run is the session.
+            </Text>
+            {activeRuns.length === 0 ? (
+              <Text style={[styles.whosPlayingEmpty, { color: colors.textMuted }]}>
+                No run yet. Start one so others can join.
+              </Text>
+            ) : (
+              activeRuns.map((item) => (
+                <Pressable
+                  key={item.run.id}
+                  onPress={() => router.push(`/courts/run/${item.run.id}` as any)}
+                  style={[styles.whosPlayingRow, { borderBottomColor: colors.border }]}
+                >
+                  <View style={styles.whosPlayingText}>
+                    <Text style={[styles.whosPlayingTitle, { color: colors.text }]}>
+                      {formatRunIntensityLabel(item.run.skill_band)}
+                      {item.isLive ? ' · Live' : ''}
+                    </Text>
+                    <Text style={[styles.whosPlayingMeta, { color: colors.textMuted }]}>
+                      {formatRunTimeLabel(item.run.starts_at)}
+                      {' · '}
+                      {item.participantCount} {item.participantCount === 1 ? 'player' : 'players'}
+                    </Text>
+                  </View>
+                  <IconSymbol name="chevron.right" size={16} color={colors.textMuted} />
+                </Pressable>
+              ))
+            )}
+            {user ? (
+              <View style={styles.whosPlayingAction}>
+                <ProfileNavPill
+                  icon="figure.run"
+                  label="Start a run"
+                  onPress={() => setShowStartRunModal(true)}
+                  showChevron={false}
+                  iconSize={22}
+                  loading={schedulingRun}
+                  disabled={schedulingRun}
+                  accessibilityLabel="Start a run at this court"
+                  accessibilityRole="button"
+                />
+              </View>
+            ) : null}
+          </Card>
+        </View>
 
         {/* Live Chat Hero Section (first under main card) */}
         <View style={StyleSheet.flatten([styles.sectionCard, styles.chatHeroSection, { marginBottom: SECTION_GAP }]) as ViewStyle}>
@@ -1189,6 +1289,58 @@ export default function CourtDetailScreen() {
         </View>
       </Modal>
       )}
+
+      <Modal
+        visible={showStartRunModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStartRunModal(false)}
+      >
+        <Pressable
+          style={styles.photosModalOverlay}
+          onPress={() => setShowStartRunModal(false)}
+        >
+          <Pressable
+            style={[styles.startRunModal, { backgroundColor: colors.surface }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: Spacing.sm }]}>
+              Start a run
+            </Text>
+            <Text style={[styles.whosPlayingHint, { color: colors.textMuted, marginBottom: Spacing.md }]}>
+              Intensity for this session. Skill ranges stay on the run for matching later.
+            </Text>
+            <View style={styles.intensityGrid}>
+              {RUN_INTENSITY_OPTIONS.map((band) => {
+                const selected = startRunIntensity === band;
+                return (
+                  <Pressable
+                    key={band}
+                    onPress={() => setStartRunIntensity(band)}
+                    style={[
+                      styles.intensityChip,
+                      {
+                        borderColor: selected ? colors.primary : colors.border,
+                        backgroundColor: selected ? colors.surfaceAlt : colors.bg,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.intensityChipText, { color: selected ? colors.primary : colors.text }]}>
+                      {formatRunIntensityLabel(band)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Button
+              title={schedulingRun ? 'Starting…' : `Start ${formatRunIntensityLabel(startRunIntensity)}`}
+              onPress={() => void handleStartRun(startRunIntensity)}
+              disabled={schedulingRun}
+              loading={schedulingRun}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Photos See All Modal */}
       <Modal
@@ -1729,6 +1881,56 @@ const styles = StyleSheet.create({
   sectionAction: {
     ...Typography.body,
     fontWeight: '600',
+  },
+  whosPlayingHint: {
+    ...Typography.mutedSmall,
+    marginBottom: Spacing.md,
+  },
+  whosPlayingEmpty: {
+    ...Typography.muted,
+    marginBottom: Spacing.md,
+  },
+  whosPlayingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  whosPlayingText: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: Spacing.sm,
+  },
+  whosPlayingTitle: {
+    ...Typography.bodyBold,
+  },
+  whosPlayingMeta: {
+    ...Typography.mutedSmall,
+    marginTop: 2,
+  },
+  whosPlayingAction: {
+    marginTop: Spacing.md,
+  },
+  startRunModal: {
+    marginHorizontal: Spacing.lg,
+    padding: Spacing.lg,
+    borderRadius: Radius.md,
+  },
+  intensityGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  intensityChip: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+  },
+  intensityChipText: {
+    ...Typography.bodyBold,
+    fontSize: 14,
   },
   chatHeroSection: {},
   chatHeroCard: {

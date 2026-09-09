@@ -81,7 +81,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 ## 4. Open work
 
-**Now (order: social-notify triggers are in git, not applied; next is apply+strip client with the next binary, or Runs product).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+**Now (order: apply runs SQL in Editor; social-notify SQL still waits for the next binary).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
 2. **Highlight comments:** composer pinned on main (not in binary 29). Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
@@ -104,10 +104,9 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Dead-code sweep (not now):** separate `[skip ci]` commit. Two-phase: move candidates to `_deprecated/`, TestFlight for a week, then delete. Cursor lists, Andrew reviews. Do not touch: `docs/` (incl. May post-mortem), `HANDOFF.md`, `supabase/migrations/`, `supabase/functions/send-push-notification/`, `ios/`, anything behind `constants/features.ts`, `lib/config.ts`, string-loaded names (analytics, notification types, deep links, MMKV/AsyncStorage), `.github/workflows/prebuild-ios.yml`.
 
-**Next product (after visual is settled)**
+**Next product (in progress)**
 
-- **Runs** stays the name. Check-in = “I am at this court now.” A Run = who is playing / the session. Prefer `check_ins.run_id` nullable FK so a check-in can exist without a run. Integration UX is its own session.
-- **Run intensity:** labels first. Proposed: **Shootaround, Casual, Competitive,** plus a top tier — prefer **Elite** / **Serious** over **Semi-pro** (identity-loaded). Drop “balanced”. Keep `skill_min` / `skill_max` for later matching. Recap is cosigns, not W/L.
+- **Runs** stays the name. Check-in = “I am at this court now.” A Run = who is playing. Court detail has a Who’s playing section + Start a run (Shootaround / Casual / Competitive / Elite). `balanced` still allowed in DB so 29 Schedule run inserts do not break. Migration `20260908240000_runs_checkin_and_intensity.sql` — **apply via SQL Editor** (additive `check_ins.run_id`, `link_check_in_run` RPC, expanded skill_band CHECK). Joining a run attaches today’s check-in when that RPC exists. Recap stays cosigns, not W/L. `skill_min` / `skill_max` still written, hidden on the run screen.
 
 **Later (inventory 2026-09-08 — do not start)**
 
