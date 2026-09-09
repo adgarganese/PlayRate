@@ -33,6 +33,12 @@ PlayRate — mobile social app for pickup and recreational athletes. Multi-sport
 
 ## 3. Current status (2026-09-08)
 
+**Session close (called it a night):** Coding + TestFlight 30 + Runs SQL are done. Next operator step is install 30 from TestFlight when Apple processing finishes, then eyeball comments / Runs / polish on device. Do not start Later inventory. Do **not** apply `20260908233000`.
+
+**In binary 30** (`a5fd200`, EAS `81e38549`, submit `d4bbad2f`): highlight comment composer pinned (`df43a00`); Find Courts compact chip + court check-in beside ratings + Header icon centering (`25e5cf7`); Runs “who’s playing” + Start a run Shootaround→Elite (`7d05cab`). Runtime **1.1.4** (OTA against 1.1.4 will reach 30).
+
+**SQL Editor tonight:** `20260908240000` **applied** (Success. No rows returned) — `check_ins.run_id`, `link_check_in_run`, skill_band includes shootaround/elite, `balanced` kept for 29. `20260908233000` **git only — do not apply** while 30 still has client notify RPCs.
+
 **Phase:** 1.1.4 (**30**) submitted to TestFlight (Apple processing). Runtime **1.1.4**, so EAS Updates against 1.1.4 will reach 30. Devices still on 29 stay runtime 1.1.2. **Lock-screen push delivered** on a two-phone DM, 2026-09-08 ~22:51 UTC (recipient banner immediately after send). User IDs not recorded — add them here if you still have both accounts handy. SQL probe `net.http_post` id 8 returned 200 at 22:40 UTC and showed **Push probe from SQL** on the most-recently-updated token’s phone. Do not treat Expo/APNs as unproven anymore. Still not a blanket “all notification types forever” claim — DMs + that probe are the known-good baseline.
 
 **What was broken (2026-08-20 → 2026-09-08):**
@@ -76,11 +82,11 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 - Primary `#38BDF8` — intentional June 8 swap. Contrast on light backgrounds is an eyeball item on 29 (Section 4), not a blanket ban on per-spot token tweaks if text is unreadable.
 - Courts browse is 2-up photo cards; sports chips and inline Following were dropped from the grid card on purpose (still on detail).
 - Onboarding done screen uses `basketball.fill` (`IconSymbol` mapping added 2026-08-19).
-- **Visual work:** do not change functionality unless Andrew notes an exception. Look/feel, hierarchy, spacing, icons. The comment composer is an explicit exception (broken).
+- **Visual work:** do not change functionality unless Andrew notes an exception. Look/feel, hierarchy, spacing, icons. Comment composer was the exception (fixed in 30).
 
 ## 4. Open work
 
-**Now (runs SQL applied 2026-09-08; social-notify SQL still waits — 30 still has client RPCs).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+**Now (session closed 2026-09-08).** Install/eyeball 30. Runs SQL applied. Social-notify SQL still waits — 30 still has client RPCs. Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
 2. **Highlight comments:** composer pinned; in binary 30. Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
