@@ -4,8 +4,7 @@
 
 _Last updated: 2026-09-08_
 _Branch: `main`_
-_Shipping binary: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`, `eas submit` succeeded 2026-08-17. Installability confirmed 2026-08-19 (device install + `device_push_tokens` row)._
-_Git: trust `git log -1`. Binary 29 is still `57c1eac` / EAS `9cb81478`. Expo.plist alignment is `1aa100d` (not in that binary). No EAS build 2026-09-08._
+_Shipping binary still on devices: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`. **Next binary: 1.1.4 (30)** — build number bumped 2026-09-08; runtime stays **1.1.4** (JS-only). Trust `git log -1` for whether EAS has started._
 
 May 2026 launch-crash investigation is **closed**. Do not treat iOS 26 / Hermes PAC / `expo/expo#44356` as a current blocker. Full write-up: [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
 
@@ -34,7 +33,7 @@ PlayRate — mobile social app for pickup and recreational athletes. Multi-sport
 
 ## 3. Current status (2026-09-08)
 
-**Phase:** 1.1.4 (29) on TestFlight. **Lock-screen push delivered** on a two-phone DM, 2026-09-08 ~22:51 UTC (recipient banner immediately after send). User IDs not recorded — add them here if you still have both accounts handy. SQL probe `net.http_post` id 8 returned 200 at 22:40 UTC and showed **Push probe from SQL** on the most-recently-updated token’s phone. Do not treat Expo/APNs as unproven anymore. Still not a blanket “all notification types forever” claim — DMs + that probe are the known-good baseline.
+**Phase:** 1.1.4 (**30** next TestFlight). Devices may still be on 29 until 30 processes. Runtime for 30 is **1.1.4** (Expo.plist already aligned). 29 remains runtime 1.1.2 for OTA. **Lock-screen push delivered** on a two-phone DM, 2026-09-08 ~22:51 UTC (recipient banner immediately after send). User IDs not recorded — add them here if you still have both accounts handy. SQL probe `net.http_post` id 8 returned 200 at 22:40 UTC and showed **Push probe from SQL** on the most-recently-updated token’s phone. Do not treat Expo/APNs as unproven anymore. Still not a blanket “all notification types forever” claim — DMs + that probe are the known-good baseline.
 
 **What was broken (2026-08-20 → 2026-09-08):**
 

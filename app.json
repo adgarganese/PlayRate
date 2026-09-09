@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.playrate.app",
-      "buildNumber": "29",
+      "buildNumber": "30",
       "entitlements": {
         "aps-environment": "production"
       },
@@ -31,7 +31,7 @@
     },
     "android": {
       "package": "com.playrate.app",
-      "versionCode": 29,
+      "versionCode": 30,
       "adaptiveIcon": {
         "backgroundColor": "#0000FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
