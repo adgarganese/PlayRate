@@ -19,5 +19,11 @@
       "env": { "EXPO_CACHE_DIR": "/tmp/expo-cache", "SENTRY_ALLOW_FAILURE": "true" }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6759843242"
+      }
+    }
+  }
 }

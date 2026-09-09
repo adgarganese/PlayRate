@@ -4,7 +4,7 @@
 
 _Last updated: 2026-09-08_
 _Branch: `main`_
-_Shipping binary still on devices: **1.1.4 (29)** — EAS `9cb81478` built from `57c1eac`. **Next binary: 1.1.4 (30)** — build number bumped 2026-09-08; runtime stays **1.1.4** (JS-only). Trust `git log -1` for whether EAS has started._
+_Shipping binary: **1.1.4 (30)** — EAS `81e38549` built from `a5fd200`, `eas submit` `d4bbad2f` succeeded 2026-09-08. Apple processing; install from TestFlight when ready. Runtime **1.1.4**. Prior: 1.1.4 (29) EAS `9cb81478` / `57c1eac` (runtime 1.1.2)._
 
 May 2026 launch-crash investigation is **closed**. Do not treat iOS 26 / Hermes PAC / `expo/expo#44356` as a current blocker. Full write-up: [`docs/post-mortems/2026-05-07-launch-crash-investigation.md`](./post-mortems/2026-05-07-launch-crash-investigation.md).
 
@@ -33,7 +33,7 @@ PlayRate — mobile social app for pickup and recreational athletes. Multi-sport
 
 ## 3. Current status (2026-09-08)
 
-**Phase:** 1.1.4 (**30** next TestFlight). Devices may still be on 29 until 30 processes. Runtime for 30 is **1.1.4** (Expo.plist already aligned). 29 remains runtime 1.1.2 for OTA. **Lock-screen push delivered** on a two-phone DM, 2026-09-08 ~22:51 UTC (recipient banner immediately after send). User IDs not recorded — add them here if you still have both accounts handy. SQL probe `net.http_post` id 8 returned 200 at 22:40 UTC and showed **Push probe from SQL** on the most-recently-updated token’s phone. Do not treat Expo/APNs as unproven anymore. Still not a blanket “all notification types forever” claim — DMs + that probe are the known-good baseline.
+**Phase:** 1.1.4 (**30**) submitted to TestFlight (Apple processing). Runtime **1.1.4**, so EAS Updates against 1.1.4 will reach 30. Devices still on 29 stay runtime 1.1.2. **Lock-screen push delivered** on a two-phone DM, 2026-09-08 ~22:51 UTC (recipient banner immediately after send). User IDs not recorded — add them here if you still have both accounts handy. SQL probe `net.http_post` id 8 returned 200 at 22:40 UTC and showed **Push probe from SQL** on the most-recently-updated token’s phone. Do not treat Expo/APNs as unproven anymore. Still not a blanket “all notification types forever” claim — DMs + that probe are the known-good baseline.
 
 **What was broken (2026-08-20 → 2026-09-08):**
 
@@ -80,7 +80,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 ## 4. Open work
 
-**Now (order: apply runs SQL in Editor; social-notify SQL still waits for the next binary).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+**Now (order: apply runs SQL in Editor so 30’s Elite/Shootaround + check-in link work; social-notify SQL still waits — 30 still has client RPCs).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
 2. **Highlight comments:** composer pinned on main (not in binary 29). Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
@@ -97,7 +97,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
    | Run join `run_join` | `lib/runs.ts` | same | same |
    | Cosign `cosign` | `lib/recap.ts` | same | same |
 
-   Do **not** apply `20260908233000` onto prod while 29 is the only tester binary — 29 still fires the client RPC, so likes/follows would double. Do **not** run root `notifications-migration.sql` (wrong types `like` / `follow`). Optional `new_message` unique index skipped: `entity_id` is conversation_id, so a unique on that would collapse later DMs in the same thread.
+   Do **not** apply `20260908233000` onto prod while testers are on 29 **or** 30 — both still fire the client RPC, so likes/follows would double. Strip those calls in a later binary, then apply the same day. Do **not** run root `notifications-migration.sql` (wrong types `like` / `follow`). Optional `new_message` unique index skipped: `entity_id` is conversation_id, so a unique on that would collapse later DMs in the same thread.
    Same migration also skips `create_notification` rate-limit when `pg_trigger_depth() > 0` (triggers were sharing the client 50/min bucket).
 5. Other Edge Functions that string-compare `SUPABASE_SERVICE_ROLE_KEY` — same env drift possible. Only `send-push-notification` exists in repo today.
 
@@ -142,7 +142,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Production iOS build:** `npx eas build --platform ios --profile production` from a **standalone PowerShell** (not Cursor’s terminal) when Apple login / 2FA / profile prompts are needed. If signing failed and the binary **never reached App Store Connect**, retry that **same git SHA** — do not invent a new commit or bump 1.1.5 just to rebuild. Profile/credential fixes between attempts are server-side (Apple + Expo); they do not require a git change.
 
-**After a green production build:** `npx eas submit --platform ios --profile production --latest`. Internal testers install after Apple processing; **external** testers wait on beta review for a **new marketing version**. `ITSAppUsesNonExemptEncryption` is `false` in committed `ios/PlayRate/Info.plist` (verified 2026-08-17).
+**After a green production build:** `npx eas submit --platform ios --profile production --latest`. `eas.json` `submit.production.ios.ascAppId` is `6759843242` (needed for `--auto-submit` / `--non-interactive`). Internal testers install after Apple processing; **external** testers wait on beta review for a **new marketing version**. `ITSAppUsesNonExemptEncryption` is `false` in committed `ios/PlayRate/Info.plist` (verified 2026-08-17).
 
 **Apple agreements:** If EAS says it failed to register `com.playrate.app` and mentions the Developer Program License Agreement, the Account Holder must accept it at https://developer.apple.com/account **before** retrying. EU DSA trader status is App Store Connect compliance; TestFlight can often proceed after the license agreement alone.
 
