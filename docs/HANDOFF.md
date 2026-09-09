@@ -86,7 +86,15 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 ## 4. Open work
 
-**Now (session closed 2026-09-08).** Install/eyeball 30. Runs SQL applied. Social-notify SQL still waits — 30 still has client RPCs. Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+**Now (session closed 2026-09-08).** Install/eyeball 30 tomorrow. Runs SQL applied. Social-notify SQL still waits — 30 still has client RPCs. Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+
+**Install 30 verification (do this first; do not assume TestFlight replaced 29):**
+
+1. Confirm the binary is **30** (app About / iOS Settings → General → About / TestFlight build stamp). If it still says 29, stop — you are not testing tonight’s ship.
+2. Highlight comments: open any highlight, type a comment — composer visible while typing, post reachable.
+3. Runs: court detail **Who’s playing** + **Start a run** intensity Shootaround → Casual → Competitive → Elite. Not behind a flag.
+4. Find Courts: compact empty/loading chip, hidden when pins exist. Court **detail** check-in opposite ratings (not the grid card). Header title-row icons centered (Profile bell/gear, Courts map/plus, Highlights search).
+5. Bonus if two phones: one DM, lock-screen banner — regression that morning’s push fix is still in 30.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
 2. **Highlight comments:** composer pinned; in binary 30. Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
@@ -164,7 +172,7 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 **Windows `Select-String -SimpleMatch`:** One pattern per command. `|` is a literal, not alternation.
 
-**Memory vs disk:** Assistant memory is summary. Trust this file + `git` / dashboards over memory. Claude should fetch `https://raw.githubusercontent.com/adgarganese/PlayRate/main/docs/HANDOFF.md` once this commit is on origin.
+**Memory vs disk:** Assistant memory is summary. Trust this file + `git` / dashboards over memory. Fetch `https://raw.githubusercontent.com/adgarganese/PlayRate/main/docs/HANDOFF.md`. If raw still shows Aug 19 / binary 29 after a Sep 8 push, that is CDN cache — re-fetch with `?` + the SHA from `git log -1 --format=%h -- docs/HANDOFF.md`, or read `git show origin/main:docs/HANDOFF.md`. Do not treat a stale raw fetch as origin truth.
 
 **Migrations:** Prefer Supabase SQL Editor when Docker is not running. Do not edit already-applied migration files.
 
