@@ -81,12 +81,25 @@ What 29 carries vs 28 (`6ae38ef`, 2026-05-07):
 
 ## 4. Open work
 
-**Now (order: comments composer + visual polish are on git; next is notification RPC inventory).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
+**Now (order: social-notify triggers are in git, not applied; next is apply+strip client with the next binary, or Runs product).** Look/feel only unless noted. No EAS credit unless a later native item needs a binary.
 
 1. Optional: two tester user IDs into Section 3 for a known-good DM pair.
 2. **Highlight comments:** composer pinned on main (not in binary 29). Dedicated comments screen + highlight detail; iOS KAV `padding`, same offset as DMs.
 3. **Visual polish (this session):** Find Courts empty/loading is a compact map chip (hidden when pins exist); court detail check-in sits opposite ratings with a larger `location.fill` icon (same check-in tap; not on the grid card); Header title-row centers Profile bell/gear and the Courts/Highlights right icons. Eyeball leftovers (photo placeholders, `#38BDF8` contrast, card proportions) stay in Soon.
-4. **Client-only notification RPCs** (same silent-fail class as DMs before the message trigger): `highlight_like` and `highlight_comment` (`lib/highlights.ts`), `new_follower` (`hooks/useFollow.ts`), `run_join` (`lib/runs.ts`), `cosign` (`lib/recap.ts`). Likes *did* insert tonight (21:09) so some client RPCs work; DMs did not. Don’t assume the RPC is globally dead. Optional belt: partial unique index on `notifications (user_id, type, entity_id) WHERE type = 'new_message'` so 29’s still-shipped client call cannot double-push if it starts succeeding.
+4. **Client-only notification RPCs → DB triggers (ready, not applied).** Same silent-fail class as DMs. RPC is **not** globally dead (likes inserted 2026-09-08 21:09). Inventory:
+
+   | Event | Client call | DB trigger today | Apply |
+   |---|---|---|---|
+   | DM `new_message` | removed in `lib/dms.ts` | `on_message_inserted_notify` (applied 2026-09-08) | done |
+   | Repost `repost` | none | `trigger_notify_on_highlight_repost` | done |
+   | Like `highlight_like` | `lib/highlights.ts` | migration `20260908233000` (git only) | SQL Editor **same day** as next binary that strips the client call |
+   | Comment `highlight_comment` | `lib/highlights.ts` | same | same |
+   | Follow `new_follower` | `hooks/useFollow.ts` (after `toggle_follow`) | same | same |
+   | Run join `run_join` | `lib/runs.ts` | same | same |
+   | Cosign `cosign` | `lib/recap.ts` | same | same |
+
+   Do **not** apply `20260908233000` onto prod while 29 is the only tester binary — 29 still fires the client RPC, so likes/follows would double. Do **not** run root `notifications-migration.sql` (wrong types `like` / `follow`). Optional `new_message` unique index skipped: `entity_id` is conversation_id, so a unique on that would collapse later DMs in the same thread.
+   Same migration also skips `create_notification` rate-limit when `pg_trigger_depth() > 0` (triggers were sharing the client 50/min bucket).
 5. Other Edge Functions that string-compare `SUPABASE_SERVICE_ROLE_KEY` — same env drift possible. Only `send-push-notification` exists in repo today.
 
 **Dead-code sweep (not now):** separate `[skip ci]` commit. Two-phase: move candidates to `_deprecated/`, TestFlight for a week, then delete. Cursor lists, Andrew reviews. Do not touch: `docs/` (incl. May post-mortem), `HANDOFF.md`, `supabase/migrations/`, `supabase/functions/send-push-notification/`, `ios/`, anything behind `constants/features.ts`, `lib/config.ts`, string-loaded names (analytics, notification types, deep links, MMKV/AsyncStorage), `.github/workflows/prebuild-ios.yml`.
